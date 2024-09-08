@@ -1,0 +1,532 @@
+---
+title: "Week3, Assignment 1"
+author: "Gabi Rivera"
+format: 
+    html: 
+        toc: true
+    pdf: default
+editor: visual
+---
+
+```{r warning=FALSE, message=FALSE}
+library(caret)
+library(AppliedPredictiveModeling)
+library(dplyr)
+library(ggplot2)
+library(factoextra)
+library(corrplot)
+library(car)
+library(knitr)
+library(gt)
+library(naniar)
+library(mice)
+```
+
+## Problem 3.1 (30 points)
+
+A Tecator Infratec Food and Feed Analyzer instrument was used to analyze 215 samples of meat across 100 frequencies. In addition to an IR profile, analytical chemistry determined the percent content of water, fat, and protein for each sample. If we can establish a predictive relationship between IR spectrum and fat content, then food scientists could predict a sample’s fat content with IR instead of using analytical chemistry. This would provide costs savings since analytical chemistry is a more expensive, time-consuming process
+
+### 3.1.a Load the data
+
+```{r}
+# Upload data tecator data frames
+data(tecator)
+?tecator
+# Combine IR predictors and fat content outcome into a new data frame
+fat_outcome <- endpoints[,2]
+IR_fat <- cbind(absorp, Fat = fat_outcome)
+IR_fat <- as.data.frame(IR_fat)
+```
+
+The matrix absorp contains the 100 absorbance values for the 215 samples, while matrix endpoints contain the percent of moisture, **fat**, and protein in columns 1–3, respectively.
+
+### 3.1.b (5 points)
+
+**Use PCA to determine the effective dimension of these data. What is the effective dimension(it's the number of principal components needed to explain the majority of the variance in the data)?**
+
+```{r 3_1_b}
+# Perform PCA on the absorp data frame
+pca_result <- prcomp(IR_fat, scale = TRUE)
+#summary(pca_result)
+
+# Visualize variance explained by each principal component
+fviz_eig(pca_result, addlabels = TRUE, ylim = c(0, 110), geom = "line")
+
+# Determine effective dimension
+var_explained <- pca_result$sdev^2 / sum(pca_result$sdev^2)
+cumsum_var_explained <- cumsum(var_explained)
+effective_dim <- which.max(cumsum_var_explained >= 0.9)
+
+cat("The effective dimension (number of principal components needed to 
+    explain 90% of variance) is:", effective_dim)
+```
+
+### 3.1.c (20 points)
+
+**Split the data into a training and a validation set using a resampling technique, pre-process the data by centering and scaling, and build linear regression, partial least squares, ridge regression, lasso regression and elastic net models described in this chapter. For those models with tuning parameters, what are the optimal values of the tuning parameter(s)?**
+
+```{r}
+# Remove highly correlated predictors
+correlation_matrix <- cor(IR_fat[, -1])
+highly_correlated <- findCorrelation(correlation_matrix, cutoff = 0.9998)
+highly_correlated_names <- colnames(IR_fat[, -1])[highly_correlated]
+IR_fat_reduced <- IR_fat[, -highly_correlated]
+```
+
+```{r 3_1_c}
+#| warnings: false
+# Create a list of N folds K-Fold CV
+set.seed(123)
+ctrl <- trainControl(method = "cv", number = 3) 
+folds <- createFolds(IR_fat_reduced$Fat, k = 3)
+
+models <- list()
+for(i in 1:3) {
+  train_data <- IR_fat_reduced[-folds[[i]], ]  
+  test_data <- IR_fat_reduced[folds[[i]], ]    
+  
+# Build Linear Regression Model
+lm_model <- train(Fat ~ .,         
+                data = train_data,   
+                method = "lm",   
+                trControl = ctrl,
+                preProcess = c("center", "scale")) 
+models[[paste("lm_Model", i, sep = "_")]] <- lm_model
+
+# Create Partial Least Squeare Model
+pls_model <- train(Fat ~ .,           
+                   data = train_data,     
+                   method = "pls",    
+                   trControl = ctrl,  
+                   preProcess = c("center", "scale")) 
+models[[paste("pls_Model", i, sep = "_")]] <- pls_model
+
+# Create Ridge Regression Model
+ridgeGrid <- expand.grid(lambda = seq(0, 0.1, length = 5))
+ridge_model <- train(Fat ~ .,              
+                     data = train_data,     
+                     method = "ridge", 
+                     tuneGrid = ridgeGrid,
+                     trControl = ctrl,         
+                     preProcess = c("center", "scale"))  
+models[[paste("ridge_Model", i, sep = "_")]] <- ridge_model
+
+# Create Lasso Regression Model
+lasGrid <- expand.grid(fraction = seq(0.001, 1, length = 5))
+lasso_model <- train(Fat ~ .,              
+                     data = train_data,     
+                     method = "lasso",   
+                     tuneGrid = lasGrid,
+                     trControl = ctrl,
+                     preProcess = c("center", "scale"))  
+models[[paste("lasso_model", i, sep = "_")]] <- lasso_model
+
+#Create Elastic Net Models
+enetGrid <- expand.grid(alpha = seq(0, 1, by = 0.4),
+                        lambda = seq(0, 1, by = 0.4))
+elastic_net_model <- train(Fat ~ .,            # Outcome variable and all predictors
+                           data = train_data,      # Dataset
+                           method = "glmnet",     # Elastic Net method
+                           trControl = ctrl,      # Cross-validation control
+                           tuneGrid = enetGrid, # Grid of tuning parameters (alpha)
+                           preProcess = c("center", "scale"))  # Standardize predictors
+models[[paste("elastic_net_model", i, sep = "_")]] <- elastic_net_model}
+models 
+```
+
+### 3.1.d (3 points)
+
+**Which model has the best predictive ability using RMSE, MAE and R2 (on the training results) as metrics? Is any model significantly better or worse than the others?**
+
+```{r 3_1_d}
+# Train model evaluation
+train_metrics <- resamples(list(OLS = lm_model, PLS = pls_model, 
+                                Lasso = lasso_model,
+                                Enet = elastic_net_model))
+summary(train_metrics)
+dotplot(train_metrics)
+```
+
+*Looking at the averages of the summary output, all models have relatively the same scores for MAE, RMSE, and R\^2. When we look at the dotplot of MAE/RMSE/Rsquared, we see a comparable result to the summary() function as all models have relatively the same mean scores illustrated by each circle. However, the distribution is noticeably wider for some models when it comes to MAE and RMSE CL scores. This suggest wider variance. Overall, it looks like Enet has the least variability and have relatively the same mean as the rest of the models.*
+
+### 3.1.e (2 points)
+
+**Explain which model you would use for predicting the fat content of a sample.**
+
+*I would pick Elastic Net model for this instance because the average performance scores across the different models are relatively similar and most of all, it has the least variance amongst the performance metric across the resample iteration.*
+
+## Problem 3.2 (30 points)
+
+Developing a model to predict permeability (see Sect. 1.4) could save significant resources for a pharmaceutical company while at the same time more rapidly identifying molecules that have a sufficient permeability to become a drug:
+
+### 3.2.a Load the data:
+
+```{r 3_2_a}
+library(AppliedPredictiveModeling)
+data(permeability)
+?permeability
+permdf <- as.data.frame(cbind(fingerprints, Perm = permeability))
+```
+
+The matrix `fingerprints` contain the 1,107 binary molecular predictors for the 165 compounds, while the `permeability` matrix contains the permeability response.
+
+### 3.2.b (5 points)
+
+**Filter out the predictors that have low frequencies using the `nearZeroVar` function from the caret package. How many predictors are left for modeling after filtering?**
+
+```{r 3_2_b}
+# Remove low frequency predictors
+filtered_permdf <- permdf[, -nearZeroVar(permdf)]
+remaining_predictors <- ncol(filtered_permdf) - 1
+cat("Predictors left after low frequencies are removed:", 
+    remaining_predictors)
+```
+
+### 3.2.c (5 points)
+
+**Split the data into a training (80%) and a test set (20%), pre-process the data, and tune a PLS model. How many latent variables are optimal, and what is the corresponding resampled estimate of R2?**
+
+```{r 3_2_c}
+# Split data into 80% training and 20% test set
+set.seed(123)
+train_index0 <- createDataPartition(filtered_permdf$permeability, p = 0.8, list = FALSE)
+train_data0 <- filtered_permdf[train_index0, ]
+test_data0 <- filtered_permdf[-train_index0, ]
+
+# Create PLS model with tuning
+ctrl0 <- trainControl(method = "cv", number = 5) 
+pls_tune <- train(permeability ~ .,
+                  data = train_data0,
+                  method = "pls",
+                  trControl = ctrl0,
+                  tuneGrid = data.frame(ncomp = 1:10),  
+                  preProcess = c("center", "scale"))
+
+# Determine the number of optimal latent variables
+optimal_lv_pls <- pls_tune$bestTune$ncomp
+if(is.null(optimal_lv_pls)) {
+  print("Error: Unable to determine the optimal number of latent variables.")
+} else {
+print(paste("Optimal number of latent variables:", optimal_lv_pls))
+  
+# Fit the final PLS model using the optimal number of latent variables
+pls_model <- caret::train(permeability ~ .,
+                          data = train_data0,
+                          method = "pls",
+                          trControl = ctrl0,
+                          preProcess = c("center", "scale"),
+                          tuneGrid = expand.grid(ncomp = optimal_lv_pls))
+  
+# Evaluate the model performance
+R2_pls <- pls_model$results$Rsquared
+print(paste("Resampled estimate of R2:", round(R2_pls,4)))}
+```
+
+### 3.2.d (3 points)
+
+**Predict the response for the test set. What is the test set estimate of R2?**
+
+```{r 3_2_d}
+# Predict the response for the test set
+test_pred_pls <- predict(pls_model, newdata = test_data0)
+
+# Evaluate the model performance
+test_R2_pls <- (cor(test_pred_pls, test_data0$permeability))^2
+print(paste("Test set estimate of R2:", round(test_R2_pls,4)*100))
+```
+
+### 3.2.e (15 points)
+
+**Try building lasso, ridge and elastic net regression models discussed in this chapter. Do any have better predictive performance using R2 as metric on the test data?**
+
+```{r 3_2_e1}
+# Create Ridge Regression Model: Optimized
+ridge_grid <- expand.grid(lambda = seq(0.01, 1, length = 10))
+ridge_tune <- train(permeability ~ .,
+                    data = train_data0,
+                    method = "ridge",
+                    tuneGrid = ridge_grid,
+                    trControl = ctrl0,
+                    preProcess = c("center", "scale"))
+optimal_lv_lambda <- ridge_tune$bestTune$lambda
+ridge_model <- train(permeability ~ .,
+                     data = train_data0,
+                     method = "ridge",
+                     trControl = ctrl0,
+                     preProcess = c("center", "scale"),
+                     tuneGrid = data.frame(lambda = optimal_lv_lambda))
+
+# Create Lasso Regression Model: Optimized
+lasGrid0 <- expand.grid(fraction = seq(0.001, 1, length = 5))
+lasso_tune <- train(permeability ~ .,              
+                    data = train_data0,     
+                    method = "lasso",   
+                    tuneGrid = lasGrid0,
+                    trControl = ctrl0,
+                    preProcess = c("center", "scale"))  
+optimal_lv_las <- lasso_tune$bestTune$fraction
+lasso_model <- train(permeability ~ .,              
+                    data = train_data0,     
+                    method = "lasso",   
+                    trControl = ctrl0,
+                    preProcess = c("center", "scale"),
+                    tuneGrid = expand.grid(fraction = optimal_lv_las))
+
+#Create Elastic Net Models: Optimized
+enetGrid0 <- expand.grid(alpha = seq(0, 1, by = 0.1),
+                        lambda = seq(0.1, 1, by = 0.1))
+elastic_net_tune <- train(permeability ~ .,              
+                          data = train_data0,     
+                          method = "glmnet",    
+                          trControl = ctrl0,      
+                          tuneGrid = enetGrid0, 
+                          preProcess = c("center", "scale")) 
+optimal_lv_eneta <- elastic_net_tune$bestTune$alpha
+optimal_lv_enetl <- elastic_net_tune$bestTune$lambda
+elastic_net_model <- train(permeability ~ .,              
+                          data = train_data0,     
+                          method = "glmnet",    
+                          trControl = ctrl0,      
+                          preProcess = c("center", "scale"),
+                          tuneGrid = expand.grid(alpha = optimal_lv_eneta,
+                                                 lambda = optimal_lv_enetl)) 
+```
+
+```{r 3_2_e2}
+# Run predictions on test data set and determine R^2s
+ridge_test_R2 <- cor(predict(ridge_model, newdata = test_data0), 
+                     test_data0$permeability)^2
+lasso_test_R2 <- cor(predict(lasso_model, newdata = test_data0), 
+                     test_data0$permeability)^2
+elastic_net_test_R2 <- cor(predict(elastic_net_model, newdata = test_data0),
+                           test_data0$permeability)^2
+
+# Train R^2 scores
+R2_ridge <- ridge_model$results$Rsquared
+R2_lasso <- lasso_model$results$Rsquared
+R2_enet <- elastic_net_model$results$Rsquared
+
+# Table R-squared results for train and test data set
+model_results <- data.frame(
+  Model = c("PLS","Ridge", "Lasso", "ENet"),
+  R2_oTrain = c(round(R2_pls,4)*100,round(R2_ridge,4)*100,
+               round(R2_lasso,4)*100,round(R2_enet,4)*100),
+  R2_Test = c(round(test_R2_pls,4)*100,round(ridge_test_R2,4)*100, 
+              round(lasso_test_R2,4)*100, round(elastic_net_test_R2,4)*100))
+
+knitr::kable(model_results, caption = "Test R2 Scores for Different Models")
+```
+
+*Yes, Ridge regression model performed the best amongst the 4 models being compared at \~40% r-squared score increase on the test data set.*
+
+### 3.2.f (2 points)**Would you recommend any of your models to replace the permeability laboratory experiment?**
+
+*I'm a little hesitant to recommend because of the low R\^2 results.The models fell short in establishing a reliable relationship between the outcome and the predictors. The models passed with test data set performed poorly compared to the optimized model using the train data set. Only Ridge performed relatively the same for both train and test data sets which is good. But the performance is still less than 50% R-squared overall during testing for all models. It's also important to note that 85% of the predictors were removed from the data set during zero variance pre-processing step. This lost of information might have been a contributor to the reduced predictive performance.*
+
+## Problem 3.3 (30 points)
+
+### 3.3.a
+
+```{r 3_3_a}
+library(AppliedPredictiveModeling)
+data(ChemicalManufacturingProcess) 
+?ChemicalManufacturingProcess
+```
+
+The ChemicalManufacturingProcess data frame contains 57 predictors (12 describing the input biological material and 45 describing the process predictors) and a yield column which is the percent yield for each run for the 176 manufacturing runs.
+
+### 3.3.b (4 points)
+
+**Split the data into a training (80%) and a test set (20%). A small percentage of cells in the predictor set contain missing values. Use an imputation function to fill in these missing values in both training and test data sets, also perform centering and scaling.**
+
+```{r 3_3_b1}
+#| warnings: false
+# Determine each predictor's missing values
+ChemicalManufacturingProcess[ChemicalManufacturingProcess == ""] <- NA
+na_value <- sapply(ChemicalManufacturingProcess, function(x) sum(is.na(x)))
+predictors_with_missing <- names(na_value[na_value > 0])
+
+missing_values_table <- data.frame(Predictor = predictors_with_missing,
+                                   Missing_Values = na_value[predictors_with_missing])
+missing_values_table |> head() |> gt() |> 
+  tab_header(title = "Predictors with Missing Values")
+
+# Imputation by MICE (Multiple Imputation by Chained Equations)
+imputed_data <- mice(ChemicalManufacturingProcess)
+CMfgP_df <- complete(imputed_data)
+
+# Visualize missing values after imputation
+vis_miss(CMfgP_df)
+```
+
+```{r 3_3_b2}
+# Split data into 80% training and 20% test set
+set.seed(123)
+train_index1 <- createDataPartition(CMfgP_df$Yield, p = 0.8, list = FALSE)
+train_data1 <- CMfgP_df[train_index1, ]
+test_data1 <- CMfgP_df[-train_index1, ]
+
+# Perform center and scaling on the train and test data
+train_predictors <- subset(train_data1, select = -Yield)
+train_outcome <- train_data1$Yield
+test_predictors <- subset(test_data1, select = -Yield)
+test_outcome <- test_data1$Yield
+
+preproc_train <- preProcess(train_predictors, method = c("center", "scale"))
+
+scaled_train_predictors <- predict(preproc_train, train_predictors)
+scaled_test_predictors <- predict(preproc_train, test_predictors)
+
+scaled_train_data <- cbind(Yield = train_outcome, scaled_train_predictors)
+scaled_test_data <- cbind(Yield = test_outcome, scaled_test_predictors)
+```
+
+### 3.3.c (16 points)
+
+**Tune lasso regression model (lasso), ridge regression model (ridge), partial least squares model (pls), and elastic net model (enet) from chapter 6. What is the optimal value of the resampled performance metric RMSE?**
+
+```{r 3_3_c1}
+set.seed(123)
+ctrl1 <- trainControl(method = "cv", number = 5) 
+
+# Create PLS Regression Model: Optimized
+pls_tune1 <- train(Yield ~ .,
+                   data = scaled_train_data,
+                   method = "pls",
+                   trControl = ctrl1,
+                   tuneGrid = data.frame(ncomp = 1:10))
+optimal_pls <- pls_tune1$bestTune$ncomp
+pls_model1 <- caret::train(Yield ~ .,
+                           data = scaled_train_data,
+                           method = "pls",
+                           trControl = ctrl1,
+                           tuneGrid = expand.grid(ncomp = optimal_pls))
+
+# Create Ridge Regression Model: Optimized
+ridge_grid1 <- expand.grid(lambda = seq(0.01, 10, length = 10))
+ridge_tune1 <- train(Yield ~ .,
+                    data = scaled_train_data,
+                    method = "ridge",
+                    tuneGrid = ridge_grid1,
+                    trControl = ctrl1)
+optimal_lambda <- ridge_tune1$bestTune$lambda
+ridge_model1 <- train(Yield ~ .,
+                     data = scaled_train_data,
+                     method = "ridge",
+                     trControl = ctrl1,
+                     tuneGrid = data.frame(lambda = optimal_lambda))
+
+# Create Lasso Regression Model: Optimized
+lasGrid1 <- expand.grid(fraction = seq(0.001, 1, length = 5))
+lasso_tune1 <- train(Yield ~ .,              
+                    data = scaled_train_data,     
+                    method = "lasso",   
+                    tuneGrid = lasGrid1,
+                    trControl = ctrl1)  
+optimal_las <- lasso_tune1$bestTune$fraction
+lasso_model1 <- train(Yield ~ .,              
+                    data = scaled_train_data,     
+                    method = "lasso",   
+                    trControl = ctrl1,
+                    tuneGrid = expand.grid(fraction = optimal_las))
+
+#Create Elastic Net Models: Optimized
+enetGrid1 <- expand.grid(alpha = seq(0, 1, by = 0.1),
+                        lambda = seq(0.1, 1, by = 0.1))
+elastic_net_tune1 <- train(Yield ~ .,              
+                          data = scaled_train_data,     
+                          method = "glmnet",    
+                          trControl = ctrl1,      
+                          tuneGrid = enetGrid1) 
+optimal_eneta <- elastic_net_tune1$bestTune$alpha
+optimal_enetl <- elastic_net_tune1$bestTune$lambda
+elastic_net_model1 <- train(Yield ~ .,              
+                          data = scaled_train_data,     
+                          method = "glmnet",    
+                          trControl = ctrl1,      
+                          tuneGrid = expand.grid(alpha = optimal_eneta,
+                                                 lambda = optimal_enetl)) 
+```
+
+```{r 3_3_c2}
+# Regression optimal model's RMSE score
+pls_optimal_rmse <- pls_model1$results$RMSE
+ridge_optimal_rmse <- ridge_model1$results$RMSE
+lasso_optimal_rmse <- lasso_model1$results$RMSE
+elastic_net_optimal_rmse <- elastic_net_model1$results$RMSE
+
+# Table RMSE results
+model_names <- c("PLS", "Ridge", "Lasso", "Elastic Net")
+optimal_RMSE <- c(pls_optimal_rmse, ridge_optimal_rmse, 
+                  lasso_optimal_rmse, elastic_net_optimal_rmse)
+optimal_RMSE_df <- data.frame(Model = model_names, 
+                              Optimal_Train_RMSE = optimal_RMSE)
+optimal_RMSE_df |> gt() |> tab_header(
+  title = "RMSE for Each Optimized Model")
+```
+
+### 3.3.d (5 points)
+
+**Predict the response for the test set using the above trained models. What is the value of the performance metric RMSE, and how does this compare with the resampled performance metric RMSE on the training set?**
+
+```{r 3_3_d}
+# Perform predictions on test data sets
+predictions <- list(
+  PLS = predict(pls_model1, newdata = scaled_test_data),
+  Ridge = predict(ridge_model1, newdata = scaled_test_data),
+  Lasso = predict(lasso_model1, newdata = scaled_test_data),
+  Elastic_Net = predict(elastic_net_model1, newdata = scaled_test_data))
+
+# Calculate RMSE on test data set
+calc_rmse <- function(actual, predicted) {
+  sqrt(mean((actual - predicted)^2))}
+rmse_scores <- sapply(predictions, function(pred) 
+  calc_rmse(scaled_test_data$Yield, pred))
+
+# Table RMSE results
+optimal_RMSE_df <- data.frame(Model = model_names,Optimal_Train_RMSE = optimal_RMSE,
+                              Test_RMSE = rmse_scores)
+optimal_RMSE_df |> gt() |> tab_header(
+  title = "RMSE Score for Each Model")
+```
+
+*Ridge regression performed better during the test session compared to the train session by \>50%. This mean that the model is improving at predicting close to the true values, on average. The Lasso and Elastic Net have relatively similar RMSE between the data sets with small improvement which is good. This means that there's no performance drop. Across the different models, Elastic Net is the top performer at 1.2 RMSE. But overall, the test RMSE performances are all close to each other.*
+
+### 3.3.e (5 points)
+
+**In the optimal model, how many biological and process predictors remain (whose coefficient is greater than zero)? What are the top five predictors (use absolute values of coefficients) that have the most impact on the yield?**
+
+*Assuming optimal model is Elastic Net Regression Model because it scored highest on RMSE test results.*
+
+```{r}
+# Extract coefficients from the final model: Elastic Net Model
+coef_values <- predict(elastic_net_model1$finalModel, type = "coefficients")
+predictor_names <- colnames(scaled_train_data)[!colnames(scaled_train_data) %in% "Yield"]
+
+coef_df <- data.frame(Predictor = c("Intercept", predictor_names), 
+                      Coefficient = c(coef_values[1], coef_values[-1]))
+
+nonzero_coefs <- coef_df[coef_df$Coefficient != 0, ]
+nonzero_coefs <- nonzero_coefs[nonzero_coefs$Predictor != "Intercept", ]
+nonzero_coefs_unique <- nonzero_coefs |> 
+  group_by(Predictor) |>
+  slice(which.max(abs(Coefficient))) |> 
+  ungroup()
+
+# Count predictors unique manufacturing and biological predictors
+manufacturing_process_count <- sum(grepl("ManufacturingProcess", 
+                                         nonzero_coefs_unique$Predictor))
+biological_material_count <- sum(grepl("BiologicalMaterial", 
+                                       nonzero_coefs_unique$Predictor))
+
+cat("Total count of unique predictors with 'ManufacturingProcess':", 
+    manufacturing_process_count, "\n")
+cat("Total count of unique predictors with 'BiologicalMaterial':", 
+    biological_material_count, "\n")
+
+# Print top five unique predictors with highest coefficient
+nonzero_coefs_unique |> arrange(desc(abs(Coefficient))) |> 
+  slice(1:5)|> gt() |> tab_header(
+  title = "Unique Predictors with Highest Coefficient")
+
+```

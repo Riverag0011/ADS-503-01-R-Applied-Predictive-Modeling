@@ -1,0 +1,262 @@
+---
+title: "ADS503 - Module 1 Lab"
+author: "Satya Allumallu"
+date: "1/20/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, include = TRUE)
+```
+
+### R Data Types
+
+We will review vectors, matrices, data frames and list data types, these are the most commonly used data types in R. For more details on R data types see <https://www.statmethods.net/input/datatypes.html>. We will also see how to find more information about these R objects.
+
+
+```{r datatypes}
+
+xn <- c(1, 2, 3) # numeric vector
+yn = c(1, 2, 3)
+
+str(xn) # structure of the R object
+class(xn) # class of the object
+
+xc <- c('a', 'b', 'c') # character vector
+
+str(xc)
+class(xc)
+
+xm <- matrix(1:20, nrow = 5, ncol = 4) # matrix
+xm
+?matrix
+
+xm1 <- matrix(1:20, nrow = 5, ncol = 4, byrow = TRUE) # matrix
+xm1
+
+str(xm1)
+class(xm1)
+
+xl <- list(a = 1:10, beta = exp(-3:3), logic = c(TRUE, FALSE, FALSE, TRUE)) # list
+xl$a
+xl[[2]]
+
+str(xl)
+class(xl)
+
+xd <- data.frame(x = 1:10, y = letters[1:10], 
+                 z = rep(c(TRUE, FALSE), 5)) # data frame
+str(xd)
+class(xd)
+head(xd)
+
+xd1 <- data.frame(x = 1:10, y = letters[1:10], 
+                 z = rep(c(TRUE, FALSE), 5), stringsAsFactors = FALSE) # data frame
+str(xd1)
+head(xd1)
+names(xd1) # names of columns in data frame
+dim(xd1) # dimension of data frame
+nrow(xd1) # number of rows of data frame
+ncol(xd1) # number of columns of data frame
+
+# Accessing data frames
+
+xd1[1, ] # first row
+xd1[, 1] # first column
+xd1[2, 3] # second row and third column
+xd1[, c("y", "z")] # data frame columns y and z
+xd1[xd1$x > 5, ] # subset data frame
+xds <- subset(xd1, x > 5) # subset data frame
+subset(xd1, x > 5 & z == TRUE) # subset data frame
+xds1 <- subset(xd1, x > 5, select = c(x, y)) # subset and select data frame
+xds2 <- subset(xd1, x > 5, select = -z) # subset and select data frame
+
+```
+
+
+### Reading and writing files in R
+
+
+```{r readwrite}
+
+getwd()
+setwd('/Users/sallumallu/Desktop/Online_Courses/USD_Course/MADS503/Module1')
+read_df1 <- read.csv('/Users/sallumallu/Desktop/Online_Courses/USD_Course/MADS503/Module1/hcvdat0.csv')
+str(read_df1)
+read_df2 <- read.csv('/Users/sallumallu/Desktop/Online_Courses/USD_Course/MADS503/Module1/hcvdat0.csv',
+                    stringsAsFactors = FALSE)
+str(read_df2)
+
+write.csv(xds2, file = 'xds2.csv')
+
+```
+
+### Apply functions in R.
+
+We will review some of the apply functions in R. These are very useful and handy functions in base R that help you avoid using loops and write clean code. For more details on apply functions see <https://ademos.people.uic.edu/Chapter4.html>.
+
+```{r applyfunctions}
+
+data(cars)
+head(cars)
+dim(cars)
+
+apply(cars, 1, mean) # row mean
+apply(cars, 2, mean) # column mean
+
+data(airquality)
+head(airquality)
+aq_class <- lapply(airquality, class) # get class of each column in the data frame
+aq_class
+aq_mean <- lapply(airquality, mean) # get mean of each column in the data frame
+aq_mean
+aq_mean_cleaned <- lapply(airquality, mean, na.rm = TRUE) # get mean of each column in the data frame
+aq_mean_cleaned
+airquality_s <- airquality[, lapply(airquality, class) == 'integer'] # subset
+# data frame using lapply function
+
+sapply(airquality, function(x) sum(is.na(x))) # using sapply to find NA's
+aq_mean_cleaned_vector <- sapply(airquality, mean, na.rm = TRUE)
+aq_mean_cleaned_vector
+names(aq_mean_cleaned_vector)
+
+```
+
+
+### Some useful functions in R for module 1
+
+pairs, cor, boxplot and skewness
+
+```{r usefulfunctions}
+
+data(iris)
+str(iris)
+
+pairs(iris) # pairwise scatter plots
+#cor(iris) # correlation between predictors
+
+cor(iris[,-5])
+
+# some boxplots
+boxplot(iris)
+
+par(mfrow = c(1,2))
+boxplot(iris$Sepal.Length ~ iris$Species)
+boxplot(iris$Sepal.Width ~ iris$Species)
+
+# some histograms
+par(mfrow = c(1,3))
+hist(iris$Sepal.Length)
+hist(iris$Sepal.Width)
+hist(iris$Petal.Length)
+
+library(Hmisc)
+hist.data.frame(iris)
+hist.data.frame(airquality)
+
+```
+
+### Boxcox Transformations 
+
+Boxcox transformations are used to transform a predictor variable with non-normal distribution into predictor with normal distribution.
+
+```{r boxcox}
+
+set.seed(20)
+x <- rgamma(1000, 2)
+hist(x)
+
+library(e1071)
+skewness(x)
+
+y <- rnorm(1000)
+hist(y)
+skewness(y)
+
+library(caret)
+bct <- BoxCoxTrans(x)
+x_trans <- predict(bct, x)
+hist(x_trans)
+skewness(x_trans)
+         
+z <- c(x, 0)
+bct2 <- BoxCoxTrans(z)
+z <- z + 10^-4
+bct2 <- BoxCoxTrans(z)
+
+```
+
+### Principal Component Analysis
+
+It is commonly used for dimensionality reduction by projecting each data point 
+onto only the first few principal components to obtain lower-dimensional data 
+while preserving as much of the data's variation as possible. 
+
+Principal components are directions that have maximum variance when data is 
+projected onto them and at the same time are uncorrelated with each other.
+
+Principal components are linear combinations of original predictors.
+
+```{r PCA}
+
+# Example 1
+
+set.seed(100)
+x <- rnorm(1000)
+y <- rnorm(1000)
+z <- rnorm(1000)
+
+m <- matrix(data = c(x, y, z), nrow = 1000, ncol = 3)
+
+m_pca <- prcomp(m)
+str(m_pca)
+
+m_pca_var <- m_pca$sdev^2
+m_pca_var * 100/sum(m_pca_var)
+m_pca_var
+m_pca$rotation
+# m_pca$x # Use this to print all rows
+m_pca$x[1:20,] # Use this to print first 20 rows
+
+# Example 2
+
+t <- (x + y + z)/3
+m1 <- matrix(data = c(x, y, z, t), nrow = 1000, ncol = 4)
+
+m1_pca <- prcomp(m1)
+m1_pca_var <- m1_pca$sdev^2
+m1_pca_var * 100/sum(m1_pca_var)
+
+biplot(m1_pca, scale = 0)
+biplot(m1_pca, choices = 2:3, scale = 0)
+
+
+# Example 3
+
+t <- exp(x)* y + z
+m2 <- matrix(data = c(x, y, z, t), nrow = 1000, ncol = 4)
+
+m2_pca <- prcomp(m2, scale. = TRUE)
+m2_pca_var <- m2_pca$sdev^2
+cumsum(m2_pca_var) * 100/sum(m2_pca_var) # top 3 components capture more 90% of variance
+
+biplot(m2_pca, scale = 0)
+biplot(m2_pca, choices = 2:3, scale = 0)
+
+# Example 4
+
+x <- rnorm(1000)
+y <- rnorm(1000)
+z <- rnorm(1000)
+t <- rnorm(1000, mean = 0, sd = 4)
+
+m3 <- matrix(data = c(x, y, z, t), nrow = 1000, ncol = 4)
+
+m3_pca <- prcomp(m3)
+m3_pca_var <- m3_pca$sdev^2
+m3_pca_var * 100/sum(m3_pca_var)
+
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

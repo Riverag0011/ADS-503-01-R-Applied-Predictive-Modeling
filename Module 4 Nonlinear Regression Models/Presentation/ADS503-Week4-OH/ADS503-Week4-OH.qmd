@@ -1,0 +1,512 @@
+---
+title: "ADS 503 - Applied Predictive Modeling (M4) "
+subtitle: "Summer 2024 - Week 4"
+author: "Dave Hurst"
+format: 
+    revealjs:
+        width: 1280
+        height: 720
+        margin: 0.05
+        incremental: false
+        code-overflow: wrap
+        logo: images/usd-smlogo.jpeg
+        css: styles.css
+        mermaid:
+            theme: "dark"
+execute: 
+    echo: false
+    cache: true
+editor: visual
+---
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(pls)
+library(elasticnet)
+library(tictoc)
+```
+
+# 
+
+::: {style="text-align: center;"}
+Start [Recording](https://sandiego.hosted.panopto.com/Panopto/Pages/Sessions/List.aspx#folderID=%22e6d28334-e667-4a4e-8f3d-b16b0040388c%22)!
+:::
+
+# Agenda
+
+::: incremental
+-   Course Map
+-   Assignment 3 Review
+    -   Hyperparameter Tuning
+-   Assignment 4 Tips
+-   QA
+:::
+
+# Course Map {.smaller}
+
+```{mermaid}
+graph TD
+    subgraph Data Prep 
+        direction TB
+        M1[Week 1 \n Transformation ]
+        M2[Week 2 \n Partition ]
+    end
+
+    subgraph Models
+        direction LR
+        subgraph Linear
+            direction TB
+            M3[Week 3 \nRegression]
+            M5[Week 5 \nClassification]
+        end
+        subgraph Non-Linear
+            direction TB
+            M4[Week 4\nRegression]
+            M6[Week 6\nClassification]
+        end
+    end
+
+    M7[Week 7\nFinal Project_]
+
+    
+    M2 --> M3
+    M3 --> M4
+    M6 --> M7
+    
+    style M4 fill:#aaaa22,stroke:#333,stroke-width:4px;
+
+```
+
+
+# Assignment 3 Review 
+
+# 3.1.c with `method = "cv"` {.smaller}
+
+:::columns
+::: {.column width="75%"}
+
+```{r 3_1_c_cv, echo=TRUE}
+#| cache: true
+
+seed <- 503
+data(tecator)
+
+# Extract the predictors (absorbance) and response (fat content)
+absorbance <- as.data.frame(absorp) 
+fat_content <- endpoints[,2]  #  fat is the second column
+
+# Split the data into training and validation sets
+set.seed(seed)  # for reproducibility
+train_index <- createDataPartition(fat_content, p = 0.8, list = FALSE)
+train_data <- absorbance[train_index, ]
+train_fat <- fat_content[train_index]
+test_data <- absorbance[-train_index, ]
+test_fat <- fat_content[-train_index]
+
+#CV
+train_cv <- trainControl(method = "cv")
+
+tic('31c')
+elapsed <- numeric()
+# Linear Regression
+set.seed(seed); tic('lm')  # for reproducibility/timing
+lm_model_cv <- train(train_data, train_fat, 
+                  method = "lm",
+                  preProcess = c("center", "scale"),
+                  trControl = train_cv
+                  )
+tics_lm <- toc(quiet = TRUE); elapsed <- c(elapsed, tics_lm$tic - tics_lm$toc)
+
+
+# Partial Least Squares
+set.seed(seed); tic('pls')  # for reproducibility
+pls_model_cv <- train(train_data, train_fat, 
+                   method = "pls",
+                   tuneLength = 40,
+                   preProcess = c("center", "scale"),
+                   trControl = train_cv
+                   )
+tics_pls <- toc(quiet = TRUE); elapsed <- c(elapsed, tics_pls$tic - tics_pls$toc)
+
+# Ridge Regression
+set.seed(seed); tic('ridge')
+ridge_grid <- data.frame(.lambda = seq(0, 1, length = 11))
+ridge_model_cv <- train(train_data, train_fat, 
+                     method = "ridge",
+                     tuneGrid =  ridge_grid,
+                     preProcess = c("center", "scale"),
+                     trControl = train_cv
+                     )
+tics_ridge <- toc(quiet = TRUE); elapsed <- c(elapsed, tics_ridge$tic - tics_ridge$toc)
+
+
+# Lasso Regression
+set.seed(seed); tic('lasso')
+lambda_grid <- data.frame(.fraction = seq(0.005, 0.05, length = 20))
+lasso_model_cv <- train(train_data, train_fat, 
+                     method = "lasso",
+                     tuneGrid =  lambda_grid,
+                     preProcess = c("center", "scale"),
+                     trControl = train_cv
+)
+tics_lasso <- toc(quiet = TRUE); elapsed <- c(elapsed, tics_lasso$tic - tics_lasso$toc)
+
+
+
+# Elastic Net
+set.seed(seed); tic('enet')
+enet_grid <- expand.grid(.lambda = seq(0, 0.3, length = 4),
+                        .fraction = seq(0.005, 0.05, length = 21))
+enet_model_cv <- train(train_data, train_fat, 
+                     method = "enet",
+                     tuneGrid =  enet_grid,
+                     preProcess = c("center", "scale"),
+                     trControl = train_cv
+)
+#plot(enet_model)
+tics_enet <- toc(quiet = TRUE); elapsed <- c(elapsed, tics_enet$tic - tics_enet$toc)
+total_31_cv <- toc(quiet = TRUE)
+```
+```{r}
+elapsed_cv <- elapsed
+```
+
+:::
+::: {.column width="25%"}
+```{r}
+models <- c('LinReg', 'PLS', 'Ridge', 'Lasso', 'ENET')
+tibble(`Models/CV` = models, Times = -elapsed) |> gt::gt()
+```
+:::
+:::
+
+# 3.1.c with `method = "cv"` {.smaller}
+
+::: columns
+::: {.column width="60%"}
+```{r 3_1_d_cv, echo=TRUE}
+train_metrics_cv <- resamples(list(
+    Regression = lm_model_cv,
+    PLS = pls_model_cv,
+    Ridge = ridge_model_cv,
+    Lasso = lasso_model_cv,
+    ENET = enet_model_cv))
+summary(train_metrics_cv)$statistics$RMSE
+```
+:::
+::: {.column width="40%"}
+```{r echo=TRUE}
+dotplot(train_metrics_cv, metric = 'RMSE')
+```
+
+:::
+:::
+
+::: fragment
+```{r echo=TRUE}
+diff(train_metrics_cv, metric = "RMSE") |> summary()
+```
+
+:::
+
+# 3.1.c with `method = "repeatedcv"` {.smaller}
+
+:::columns
+::: {.column width="75%"}
+
+```{r 3_1_c, echo=TRUE}
+#| cache: true
+
+#Repeated CV
+train_repeated_cv <- trainControl(method = "repeatedcv", repeats = 5)
+
+tic('31c')
+elapsed <- numeric()
+# Linear Regression
+set.seed(seed); tic('lm')  # for reproducibility/timing
+lm_model <- train(train_data, train_fat, 
+                  method = "lm",
+                  preProcess = c("center", "scale"),
+                  trControl = train_repeated_cv
+                  )
+tics_lm <- toc(quiet = TRUE); elapsed <- c(elapsed, tics_lm$tic - tics_lm$toc)
+
+
+# Partial Least Squares
+set.seed(seed); tic('pls')  # for reproducibility
+pls_model <- train(train_data, train_fat, 
+                   method = "pls",
+                   tuneLength = 40,
+                   preProcess = c("center", "scale"),
+                   trControl = train_repeated_cv
+                   )
+tics_pls <- toc(quiet = TRUE); elapsed <- c(elapsed, tics_pls$tic - tics_pls$toc)
+
+# Ridge Regression
+set.seed(seed); tic('ridge')
+ridge_grid <- data.frame(.lambda = seq(0, 1, length = 11))
+ridge_model <- train(train_data, train_fat, 
+                     method = "ridge",
+                     tuneGrid =  ridge_grid,
+                     preProcess = c("center", "scale"),
+                     trControl = train_repeated_cv
+                     )
+tics_ridge <- toc(quiet = TRUE); elapsed <- c(elapsed, tics_ridge$tic - tics_ridge$toc)
+
+
+# Lasso Regression
+set.seed(seed); tic('lasso')
+lambda_grid <- data.frame(.fraction = seq(0.005, 0.05, length = 20))
+lasso_model <- train(train_data, train_fat, 
+                     method = "lasso",
+                     tuneGrid =  lambda_grid,
+                     preProcess = c("center", "scale"),
+                     trControl = train_repeated_cv
+)
+tics_lasso <- toc(quiet = TRUE); elapsed <- c(elapsed, tics_lasso$tic - tics_lasso$toc)
+
+
+
+# Elastic Net
+set.seed(seed); tic('enet')
+enet_grid <- expand.grid(.lambda = seq(0, 0.3, length = 4),
+                        .fraction = seq(0.005, 0.05, length = 21))
+enet_model <- train(train_data, train_fat, 
+                     method = "enet",
+                     tuneGrid =  enet_grid,
+                     preProcess = c("center", "scale"),
+                     trControl = train_repeated_cv
+)
+#plot(enet_model)
+tics_enet <- toc(quiet = TRUE); elapsed <- c(elapsed, tics_enet$tic - tics_enet$toc)
+total_31 <- toc(quiet = TRUE)
+```
+:::
+::: {.column width="25%"}
+```{r}
+models <- c('LinReg', 'PLS', 'Ridge', 'Lasso', 'ENET')
+tibble(`Models/RCV` = models, Times = -elapsed) |> gt::gt()
+```
+:::
+:::
+
+
+
+# 3.1.c with `method = "repeatedcv"` {.smaller}
+
+::: columns
+::: {.column width="60%"}
+```{r 3_1_d, echo=TRUE}
+train_metrics <- resamples(list(
+    Regression = lm_model,
+    PLS = pls_model,
+    Ridge = ridge_model,
+    Lasso = lasso_model,
+    ENET = enet_model))
+summary(train_metrics)$statistics$RMSE
+```
+:::
+::: {.column width="40%"}
+```{r echo=TRUE}
+dotplot(train_metrics, metric = 'RMSE')
+```
+
+:::
+:::
+::: fragment
+```{r echo=TRUE}
+diff(train_metrics, metric = "RMSE") |> summary()
+```
+
+:::
+
+# {.smaller}
+
+:::columns
+:::column
+##### CV
+
+```{r echo=TRUE}
+dotplot(train_metrics_cv, metric = 'RMSE')
+```
+:::
+::: column
+##### Repeated CV
+```{r echo=TRUE}
+dotplot(train_metrics, metric = 'RMSE')
+```
+:::
+:::
+
+# Hyperparameter Optimizaton
+
+
+
+```{r 3_1_lasso2, echo=TRUE}
+lambda_grid <- data.frame(.fraction = seq(0.005, 0.05, length = 20))
+lambda_grid2 <- data.frame(.fraction = seq(0, 1, length = 11))
+
+# Lasso Regression
+set.seed(seed)
+lasso_model2 <- train(train_data, train_fat, 
+                     method = "lasso",
+                     tuneGrid =  lambda_grid2,
+                     preProcess = c("center", "scale"),
+                     trControl = train_repeated_cv
+)
+```
+
+::: columns
+::: column
+```{r echo=TRUE}
+plot(lasso_model)
+```
+:::
+::: column
+```{r echo=TRUE}
+plot(lasso_model2)
+```
+:::
+:::
+
+#
+
+```{r}
+train_metrics2 <- resamples(list(
+    Regression = lm_model,
+    PLS = pls_model,
+    Ridge = ridge_model,
+    Lasso = lasso_model,
+    Lasso2 = lasso_model2,
+    ENET = enet_model))
+```
+```{r echo=TRUE}
+dotplot(train_metrics2)
+```
+
+# 3.2.e - Lasso Issue {.smaller}
+
+```{r}
+library(AppliedPredictiveModeling)
+data(permeability)
+
+degen_vars <- nearZeroVar(fingerprints)
+fp_reduced <- fingerprints[ ,-degen_vars]
+
+set.seed(seed)
+fp_train_index <- createDataPartition(permeability, p = 0.8, list = FALSE)
+train_fingerprints <- fp_reduced[fp_train_index, ]
+train_permeability <- permeability[fp_train_index]
+test_fingerprints <- fp_reduced[-fp_train_index, ]
+test_permeability <- permeability[-fp_train_index]
+
+fp_prep <- preProcess(train_fingerprints, method = c("center", "scale"))
+train_fingerprints_trans <- predict(fp_prep, train_fingerprints)
+test_fingerprints_trans <- predict(fp_prep, test_fingerprints)
+
+```
+
+
+:::columns
+:::column
+```{r lasso_issue2, echo=TRUE}
+# Lasso Regression
+set.seed(seed)
+lambda_grid <- data.frame(.fraction = 10^seq(-5, -.5, length = 10))
+fp_lasso_model <- train(train_fingerprints_trans, train_permeability, 
+                     method = "lasso",
+                     tuneGrid =  lambda_grid,
+                     trControl = trainControl(method = "cv")
+)
+plot(fp_lasso_model)
+```
+:::
+:::column
+```{r lasso_issue_fix, echo=TRUE}
+# alternate Lasso
+lasso_grid <-  expand.grid(alpha = 1, lambda = seq(0, 1, length = 21))
+fp_lasso_model2 <- train(train_fingerprints_trans, train_permeability, 
+                     method = "glmnet",
+                     tuneGrid =  lasso_grid,
+                     trControl = trainControl(method = "cv")
+)
+plot(fp_lasso_model2)
+```
+
+:::
+:::
+
+# Assignment 4 Tips
+
+- Use the A4-M1.qmd template (whether you use posit or not)
+- Plot your model (hyperparameters) (page limit extended to 21)
+- posit.cloud solutions should solve quickly (< 90s for entire notebook)
+
+# Q&A {.smaller}
+
+**Is there a difference between using `preProcess` within `train()` versus manually transforming the data?** 
+
+::: columns
+::: column
+
+
+```{r echo=TRUE}
+# Apply pre-processing with `caret::train()` (repeated from 3.1 above)
+# Split the data into training and validation sets
+set.seed(seed)  # for reproducibility
+train_index <- createDataPartition(fat_content, p = 0.8, list = FALSE)
+train_data <- absorbance[train_index, ]
+train_fat <- fat_content[train_index]
+test_data <- absorbance[-train_index, ]
+test_fat <- fat_content[-train_index]
+
+#CV
+train_cv <- trainControl(method = "cv")
+
+# Partial Least Squares
+set.seed(seed); 
+pls_model_auto <- train(train_data, train_fat, 
+                   method = "pls",
+                   tuneLength = 40,
+                   preProcess = c("center", "scale"),
+                   trControl = train_cv
+                   )
+```
+:::
+::: column
+
+
+```{r echo=TRUE}
+# Apply pre-processing manually
+absorb_prep <- preProcess(absorbance, method = c("center", "scale"))
+absorb_trans <- predict(absorb_prep, newdata = absorbance)
+train_data_trans <- absorb_trans[train_index, ]
+test_data_trans <- absorb_trans[-train_index, ]
+
+# Partial Least Squares
+set.seed(seed); 
+pls_model_manual <- train(train_data_trans, train_fat, 
+                          method = "pls",
+                          tuneLength = 40,
+                          preProcess = c("center", "scale"),
+                          trControl = train_cv
+)
+```
+
+
+```{r echo=TRUE}
+# Compare the outputs.
+predictions <- tibble(
+    auto = predict(pls_model_auto, newdata = test_data),
+    manual = predict(pls_model_manual, newdata = test_data_trans)
+) |> 
+    mutate(abs_error = abs(manual - auto))
+sum(predictions$abs_error)
+```
+
+:::
+:::
+
+**No difference.** In summary, `caret` knows to apply the same transformations automatically in the `predict()` step, ensuring that the data is processed consistently throughout the model lifecycle.

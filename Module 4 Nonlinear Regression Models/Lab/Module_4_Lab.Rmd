@@ -1,0 +1,312 @@
+---
+title: "Module 4 lab"
+author: "Satya Allumallu"
+date: "3/13/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Nonlinear Regression Methods:
+
+In this module we will build neural network with single hidden layer, mars, SVM 
+and knn models to the solubility data set from the text. In the end we will 
+compare the performance of these models on the solubility data set.
+
+```{r neuralnets}
+
+library(AppliedPredictiveModeling)
+data(solubility)
+
+### Create a control function that will be used across models. We
+### create the fold assignments explicitly instead of relying on the
+### random number seed being set to identical values.
+
+library(caret)
+set.seed(100)
+indx <- createFolds(solTrainY, returnTrain = TRUE)
+ctrl <- trainControl(method = "cv", index = indx)
+nnetGrid <- expand.grid(decay = c(0, 0.01, .1), 
+                        size = c(3, 7, 11, 13))
+
+set.seed(100)
+nnetTune <- train(x = solTrainXtrans, y = solTrainY,
+                  method = "nnet",
+                  tuneGrid = nnetGrid,
+                  trControl = ctrl,
+                  preProc = c("center", "scale"),
+                  linout = TRUE,
+                  trace = FALSE,
+                  MaxNWts = 13 * (ncol(solTrainXtrans) + 1) + 13 + 1,
+                  maxit = 1000)
+nnetTune
+plot(nnetTune)
+nnetTune$finalModel$wts
+
+testResults <- data.frame(obs = solTestY,
+                          NNet = predict(nnetTune, solTestXtrans))
+
+nnetImp <- varImp(nnetTune, scale = FALSE)
+plot(nnetImp, top = 25)
+
+```
+
+```{r mars}
+
+set.seed(100)
+marsTune <- train(x = solTrainXtrans, y = solTrainY,
+                  method = "earth",
+                  tuneGrid = expand.grid(degree = 1, nprune = 2:38),
+                  trControl = ctrl)
+marsTune
+marsTune$finalModel
+marsTune$finalModel$coefficients
+
+plot(marsTune)
+
+testResults$MARS <- predict(marsTune, solTestXtrans)
+
+marsImp <- varImp(marsTune, scale = FALSE)
+plot(marsImp, top = 25)
+
+```
+
+
+```{r svm}
+
+set.seed(100)
+svmRTune <- train(x = solTrainXtrans, y = solTrainY,
+                  method = "svmRadial",
+                  preProc = c("center", "scale"),
+                  tuneLength = 14,
+                  trControl = ctrl)
+svmRTune
+plot(svmRTune, scales = list(x = list(log = 2)))                 
+svmRTune$finalModel
+
+
+svmGrid <- expand.grid(degree = 1:2, 
+                       scale = c(0.01, 0.005, 0.001), 
+                       C = 2^(-2:5))
+set.seed(100)
+svmPTune <- train(x = solTrainXtrans, y = solTrainY,
+                  method = "svmPoly",
+                  preProc = c("center", "scale"),
+                  tuneGrid = svmGrid,
+                  trControl = ctrl)
+
+svmPTune
+svmPTune$finalModel
+
+plot(svmPTune, 
+     scales = list(x = list(log = 2), 
+                   between = list(x = .5, y = 1)))                 
+
+testResults$SVMr <- predict(svmRTune, solTestXtrans)
+testResults$SVMp <- predict(svmPTune, solTestXtrans)
+
+```
+
+
+```{r knn}
+
+knnDescr <- solTrainXtrans[, -nearZeroVar(solTrainXtrans)]
+
+set.seed(100)
+knnTune <- train(x = knnDescr, y = solTrainY,
+                 method = "knn",
+                 preProc = c("center", "scale"),
+                 tuneGrid = data.frame(k = 1:20),
+                 trControl = ctrl)
+                 
+knnTune
+plot(knnTune)
+testResults$Knn <- predict(knnTune, solTestXtrans[, names(knnDescr)])
+
+```
+
+```{r comparemodels}
+
+getRMSE <- function(x,y) {
+  sqrt(sum((x-y)^2)/length(x))
+}
+
+getRMSE(testResults$obs, testResults$NNet) # RMSE Nnet model
+getRMSE(testResults$obs, testResults$MARS) # RMSE Mars model
+getRMSE(testResults$obs, testResults$SVMr) # RMSE SVMr model
+getRMSE(testResults$obs, testResults$SVMp) # RMSE SVMp model
+getRMSE(testResults$obs, testResults$Knn) # RMSE Knn model
+
+```
+
+
+```{r treebasedmodels}
+
+library(AppliedPredictiveModeling)
+data(solubility)
+
+### Create a control function that will be used across models. We
+### create the fold assignments explicitly instead of relying on the
+### random number seed being set to identical values.
+
+library(caret)
+set.seed(100)
+indx <- createFolds(solTrainY, returnTrain = TRUE)
+ctrl <- trainControl(method = "cv", index = indx)
+
+library(rpart)
+
+### Fit two CART models to show the initial splitting process. rpart 
+### only uses formulas, so we put the predictors and outcome into
+### a common data frame first.
+
+trainData <- solTrainXtrans
+trainData$y <- solTrainY
+
+rpStump <- rpart(y ~ ., data = trainData, 
+                 control = rpart.control(maxdepth = 1))
+rpSmall <- rpart(y ~ ., data = trainData, 
+                 control = rpart.control(maxdepth = 2))
+
+library(rpart.plot)
+prp(rpStump)
+prp(rpSmall)
+
+### Tune the model
+library(caret)
+
+set.seed(100)
+cartTune <- train(x = solTrainXtrans, y = solTrainY,
+                  method = "rpart",
+                  tuneLength = 25,
+                  trControl = ctrl)
+cartTune
+cartTune$finalModel
+prp(cartTune$finalModel)
+
+### Plot the tuning results
+plot(cartTune, scales = list(x = list(log = 10)))
+
+### Use the partykit package to make some nice plots. First, convert
+### the rpart objects to party objects.
+
+# library(partykit)
+# 
+# cartTree <- as.party(cartTune$finalModel)
+# plot(cartTree)
+
+### Get the variable importance. 'competes' is an argument that
+### controls whether splits not used in the tree should be included
+### in the importance calculations.
+
+cartImp <- varImp(cartTune, scale = FALSE, competes = FALSE)
+cartImp
+
+### Save the test set results in a data frame                 
+testResults <- data.frame(obs = solTestY,
+                          CART = predict(cartTune, solTestXtrans))
+
+
+```
+
+```{r baggedtrees}
+set.seed(100)
+
+### Bagged Trees
+
+treebagTune <- train(x = solTrainXtrans, y = solTrainY,
+                     method = "treebag",
+                     nbagg = 50,
+                     trControl = ctrl)
+
+treebagTune
+testResults$treebag <- predict(treebagTune, solTestXtrans)
+```
+### Random Forests
+
+```{r randomforests}
+
+mtryGrid <- data.frame(mtry = floor(seq(10, ncol(solTrainXtrans)/3, length = 10)))
+
+### Tune the model using cross-validation
+set.seed(100)
+rfTune <- train(x = solTrainXtrans, y = solTrainY,
+                method = "rf",
+                tuneGrid = mtryGrid,
+                ntree = 500,
+                importance = TRUE,
+                trControl = ctrl)
+rfTune
+
+plot(rfTune)
+
+rfImp <- varImp(rfTune, scale = FALSE)
+rfImp
+
+testResults$rf <- predict(rfTune, solTestXtrans)
+
+### Tune the model using the OOB estimates
+ctrlOOB <- trainControl(method = "oob")
+set.seed(100)
+rfTuneOOB <- train(x = solTrainXtrans, y = solTrainY,
+                   method = "rf",
+                   tuneGrid = mtryGrid,
+                   ntree = 500,
+                   importance = TRUE,
+                   trControl = ctrlOOB)
+rfTuneOOB
+
+plot(rfTuneOOB)
+
+testResults$rfOOB <- predict(rfTuneOOB, solTestXtrans)
+
+```
+### Boosting
+
+```{r boosting}
+
+gbmGrid <- expand.grid(interaction.depth = seq(1, 7, by = 2),
+                       n.trees = seq(100, 500, by = 50),
+                       shrinkage = c(0.01, 0.1),
+                       n.minobsinnode = 10)
+set.seed(100)
+gbmTune <- train(x = solTrainXtrans, y = solTrainY,
+                 method = "gbm",
+                 tuneGrid = gbmGrid,
+                 trControl = ctrl,
+                 verbose = FALSE)
+gbmTune
+
+library(gbm)
+gbmImp <- varImp(gbmTune, scale = FALSE)
+gbmImp
+
+summary(
+  gbmTune$finalModel, 
+  cBars = 10,
+  method = relative.influence, # also can use permutation.test.gbm
+  las = 2
+  )
+
+
+plot(gbmTune, auto.key = list(columns = 4, lines = TRUE))
+testResults$gbm <- predict(gbmTune, solTestXtrans)
+
+```
+
+
+```{r comparetreemodels}
+
+getRMSE <- function(x,y) {
+  sqrt(sum((x-y)^2)/length(x))
+}
+
+getRMSE(testResults$obs, testResults$CART) # RMSE CART model
+getRMSE(testResults$obs, testResults$treebag) # RMSE treebagged model
+getRMSE(testResults$obs, testResults$rf) # RMSE rf model
+getRMSE(testResults$obs, testResults$rfOOB) # RMSE rf OOB model
+getRMSE(testResults$obs, testResults$gbm) # RMSE gbm model
+
+```

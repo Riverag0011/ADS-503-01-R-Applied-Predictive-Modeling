@@ -1,0 +1,217 @@
+---
+title: "Module_5_Lab"
+author: "Satya Allumallu"
+date: "3/31/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Linear Classifiers
+
+In this module we will build linear classification models specifically applying
+logistic regression, linear discriminant analysis, penalized logistic regression
+and nearest shrunken centroids methods to the wisconsin breast cancer data set.
+Data set at <https://archive.ics.uci.edu/ml/datasets/breast+cancer+wisconsin+(diagnostic)>.
+In the end we will compare the performance of these models on the breast cancer 
+data set.
+
+```{r dataprep}
+
+cnames <- c('Id', 'Clump_thickness', 'Uniformity_cell_size', 'Uniformity_cell_shape', 
+            'Marginal_adhesion', 'Single_e_cell_size', 'Bare_nuclei', 
+            'Bland_chromatin', 'Normal_nucleoli', 'Mitoses', 'Class')
+bcancerdata <- read.csv('breast-cancer-wisconsin.data', header = FALSE,
+                             col.names = cnames)
+bcancerdata$Bare_nuclei <- as.numeric(as.character(bcancerdata$Bare_nuclei))
+bcancerdata$Class <- ifelse(bcancerdata$Class == 4, "malignant", "benign")
+bcancerdata$Class <- as.factor(bcancerdata$Class)
+table(bcancerdata$Class)
+str(bcancerdata)
+summary(bcancerdata)
+corrplot::corrplot(cor(bcancerdata[,1:10]))
+
+set.seed(100)
+library(caret)
+library(pROC)
+
+trainingRows <- createDataPartition(bcancerdata$Class, p = .80, list = FALSE) 
+
+# Subset the data into training and testing.
+train <- bcancerdata[trainingRows, ]
+test <- bcancerdata[-trainingRows, ]
+
+trainimp <- preProcess(train, "knnImpute")
+trainpr <- predict(trainimp, train)
+testpr <- predict(trainimp, test)
+
+summary(trainpr)
+summary(testpr)
+```
+
+### Logistic Regression
+
+Model log odds as a linear function of the predictor variables.
+
+```{r Logistic}
+
+ctrl <- trainControl(method = "cv",
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE,
+                     savePredictions = TRUE)
+
+set.seed(476)
+
+lrFit <- train(x = trainpr[,1:10], 
+               y = trainpr$Class,
+               method = "glm",
+               metric = "ROC",
+               trControl = ctrl)
+lrFit
+lrFit$finalModel
+
+lrCM <- confusionMatrix(lrFit, norm = "none")
+lrCM
+
+
+## Plot the ROC curve for the hold-out set
+lrRoc <- roc(response = lrFit$pred$obs,
+             predictor = lrFit$pred$malignant,
+             levels = rev(levels(lrFit$pred$obs)))
+
+plot(lrRoc, legacy.axes = TRUE)
+lrRoc$auc
+
+lrImp <- varImp(lrFit, scale = FALSE)
+plot(lrImp)
+
+testResults <- data.frame(obs = testpr$Class,
+                          LR = predict(lrFit, testpr[,1:10]))
+
+```
+
+### Linear Discriminant Analysis
+
+Goal is to maximize between group variance relative to within group variance.
+
+```{r LDA}
+
+set.seed(476)
+ldaFit <- train(x = trainpr[,1:10], 
+                y = trainpr$Class,
+                method = "lda",
+                preProc = c("center","scale"),
+                metric = "ROC",
+                trControl = ctrl)
+ldaFit
+ldaFit$finalModel
+
+ldaCM <- confusionMatrix(ldaFit, norm = "none")
+ldaCM
+
+## Plot the ROC curve for the hold-out set
+ldaRoc <- roc(response = ldaFit$pred$obs,
+             predictor = ldaFit$pred$malignant,
+             levels = rev(levels(ldaFit$pred$obs)))
+
+plot(ldaRoc, legacy.axes = TRUE)
+
+varImp(ldaFit)
+
+testResults$LDA <- predict(ldaFit, testpr[,1:10])
+
+```
+
+### Penalized Logistic Regression
+
+```{r glmnet}
+
+glmnGrid <- expand.grid(alpha = c(0,  .1,  .2, .4, .6, .8, 1),
+                        lambda = seq(.01, .2, length = 10))
+set.seed(476)
+glmnFit <- train(x = trainpr[,1:10], 
+                 y = trainpr$Class,
+                 method = "glmnet",
+                 tuneGrid = glmnGrid,
+                 preProc = c("center", "scale"),
+                 metric = "ROC",
+                 trControl = ctrl)
+glmnFit
+glmnFit$results
+plot(glmnFit$finalModel, label = TRUE)
+coef(glmnFit$finalModel, s = 100)
+coef(glmnFit$finalModel, s = 0.001)
+glmnFit$finalModel$lambda
+glmnFit$finalModel$tuneValue
+glmnFit$finalModel$lambdaOpt
+coef(glmnFit$finalModel, s = glmnFit$finalModel$lambdaOpt)
+
+glmnetCM <- confusionMatrix(glmnFit, norm = "none")
+glmnetCM
+
+## Plot the ROC curve for the hold-out set
+glmRoc <- roc(response = glmnFit$pred$obs,
+             predictor = glmnFit$pred$malignant,
+             levels = rev(levels(glmnFit$pred$obs)))
+
+plot(glmRoc, legacy.axes = TRUE)
+
+testResults$glmnet <- predict(glmnFit, testpr[,1:10])
+
+```
+
+### Nearest Shrunken Centroids
+
+Typically works well for high dimensional data such as RNA analsysis where the
+number of predictors/features is much larger than number of samples.
+
+```{r NSC}
+
+set.seed(476)
+nscFit <- train(x = trainpr[,1:10], 
+                y = trainpr$Class,
+                method = "pam",
+                preProc = c("center", "scale"),
+                tuneGrid = data.frame(threshold = seq(0, 25, length = 30)),
+                metric = "ROC",
+                trControl = ctrl)
+nscFit
+
+nscCM <- confusionMatrix(nscFit, norm = "none")
+nscCM
+
+## Plot the ROC curve for the hold-out set
+nscRoc <- roc(response = nscFit$pred$obs,
+             predictor = nscFit$pred$malignant,
+             levels = rev(levels(nscFit$pred$obs)))
+
+plot(nscRoc, legacy.axes = TRUE)
+
+testResults$NSC <- predict(nscFit, testpr[,1:10])
+
+```
+
+### Model Performance Comparison
+
+```{r comparemodels}
+
+### Compare Models using ROC curve
+
+plot(lrRoc, type = "s", col = 'red', legacy.axes = TRUE)
+plot(ldaRoc, type = "s", add = TRUE, col = 'green', legacy.axes = TRUE)
+plot(glmRoc, type = "s", add = TRUE, col = 'blue', legacy.axes = TRUE)
+plot(nscRoc, type = "s", add = TRUE, legacy.axes = TRUE)
+legend("bottomright", legend=c("LR", "LDA", "GLMNET", "NSC"),
+       col=c("red", "green","blue", "black"), lwd=2)
+title(main = "Compare ROC curves from different models", outer = TRUE)
+
+### Compare Models using confusion matrix
+
+confusionMatrix(testResults$LR, testResults$obs, positive = "malignant")
+confusionMatrix(testResults$LDA, testResults$obs, positive = "malignant")
+confusionMatrix(testResults$glmnet, testResults$obs, positive = "malignant")
+confusionMatrix(testResults$NSC, testResults$obs, positive = "malignant")
+
+```

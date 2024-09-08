@@ -1,0 +1,310 @@
+---
+title: "Rivera_Gabi_Assignment6.1"
+author: "Gabi Rivera"
+format: docx
+editor: visual
+---
+
+```{r library, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(gt)
+library(caret)
+library(e1071)
+library(AppliedPredictiveModeling)
+library(pROC)
+library(e1071)
+```
+
+## Assignment 6.1
+
+### Question 1
+
+The table below lists a dataset that was used to create a nearest neighbor model that predicts whether observations belong to class A or B.
+
+```{r 61a}
+#| echo: true
+
+# Data 6.1.a
+data61a <- tibble::tibble(
+    X1 = 1:6,
+    X2 = 2:7,
+    X3 = seq(30, 80, by = 10),) 
+class61a <- c("A", "B", "A", "B", "B", "A")
+gt(data61a)
+```
+
+Assuming that the model uses Euclidean distance to find the nearest neighbor, what prediction will the model return for each of the following query instances.
+
+```{r 61b}
+# data 6.1.b
+data61b <- tibble::tribble(
+    ~X1, ~X2, ~X3,
+    9, 4, 15,
+    7, 8, 45,
+    8, 7, 75)
+gt(data61b)
+```
+
+a\. Perform the analysis WITHOUT doing any preprocessing of the data.
+
+```{r 6.1.a, warning=FALSE, message=FALSE}
+ctrl <- trainControl(method = "cv",
+                     number = 5,
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE,
+                     savePredictions = TRUE)
+
+# Create KNN model without preprocessing
+set.seed(123)
+knnFit_wo <- train(x = data61a,
+                   y = class61a,
+                   method = "knn",
+                   metric = "ROC",
+                   tuneLength = 10,
+                   trControl = ctrl)
+knnFit_wo
+
+# Predict class using data61b
+knnFit_wo_predictions <- predict(knnFit_wo, newdata = data61b, type = "raw")
+knnFit_wo_predictions <- data.frame(class = knnFit_wo_predictions)
+knnFit_wo_predictions <- cbind(data61b, knnFit_wo_predictions) 
+knnFit_wo_predictions |> gt() |> 
+  tab_header(title = "KNN model test result without preprocessing")
+```
+
+b\. Perform the analysis WITH doing any preprocessing of the data.
+
+```{r 6.1.b, warning=FALSE, message=FALSE}
+# No missing data
+# All are highly correlated to the outcome
+correlation_matrix <- cor(data61a)
+# Center and scale
+data61a_scaled <- scale(data61a)
+
+# Create KNN model with preprocessing
+set.seed(123)
+knnFit_w <- train(x = data61a_scaled,
+                  y = class61a,
+                  method = "knn",
+                  tuneLength = 10,
+                  metric = "ROC",
+                  trControl = ctrl)
+knnFit_w
+
+# Predict class using data61b
+knnFit_w_predictions <- predict(knnFit_w, newdata = data61b, type = "raw")
+knnFit_w_predictions <- data.frame(class = knnFit_w_predictions)
+knnFit_w_predictions <- cbind(data61b, knnFit_w_predictions) 
+knnFit_w_predictions |> gt() |> 
+  tab_header(title = "KNN model test result with preprocessing")
+```
+
+c\. Do you observe any differences between the predictions with and without preprocessing?
+
+*No, the results are exactly the same using the small sample size.*
+
+### Question 2
+
+Email spam filtering models often use a bag-of-words representation for emails. In a bag-of-words representation, the descriptive features that describe a document (in our case, an email) each represent how many times a particular word occurs in the document. One descriptive feature is included for each word in a predefined dictionary. The dictionary is typically defined as the complete set of words that occur in the training dataset. The table below lists the bag-of-words representation for the following five emails and a target feature, SPAM, whether they are spam emails or genuine emails:
+
+*“money, money, money”*
+
+*“free money for free gambling fun”*
+
+*“gambling for fun”*
+
+*“machine learning for fun, fun, fun”*
+
+*“free machine learning”*
+
+```{r q2}
+Bag_of_words <- tibble::tibble(
+    Money = c(3,1,0,0,0),
+    Free = c(0,2,0,0,1),
+    For = c(0,1,1,1,0),
+    Gambling = c(0,1,1,0,0),
+    Fun = c(0,1,1,3,0),
+    Machine = c(0,0,0,1,1),
+    Learning = c(0,0,0,1,1))
+    
+Spam <- c("True", "True", "True", "False", "False")
+gt(Bag_of_words)
+```
+
+a\. What target level would a nearest neighbor model using Euclidean distance return for the following email: “machine learning for free”?
+
+```{r 6.2.a}
+# Return for "machine learning for free" email
+target_level <- c(Money = 0, Free = 1, For = 1, Gambling = 0, Fun = 0, 
+                  Machine = 1, Learning = 1)
+
+bow_list <- split(Bag_of_words, seq(nrow(Bag_of_words)))
+bow_list <- lapply(bow_list, function(row) as.numeric(unlist(row)))
+
+# Calcualte KNN using Euclidean distance
+euclid_dist <- function(x, y) sqrt(sum((x - y)^2))
+distances <- sapply(bow_list, function(x) euclid_dist(x, target_level))
+
+min_index <- which.min(distances)
+closest_spam <- Spam[min_index]
+cat("Spam prediction for machine learning for free = ", closest_spam)
+
+# Table Euclidean distance 
+distances <- data.frame(Euclidean_distance = round(distances,4))
+distances |> gt() 
+```
+
+b\. What target level would a k-NN model with k = 3 and using Euclidean distance return for the same query?
+
+```{r 6.2.b, warning=FALSE}
+# KNN model with K=3 using Euclidean distance
+k <- 3
+nearest_indices <- order(distances)[1:k]
+nearest_labels <- Spam[nearest_indices]
+
+# Count occurrences of "True" (spam) and "False" (not spam)
+count_true <- sum(nearest_labels == "True")
+count_false <- sum(nearest_labels == "False")
+
+# Determine the majority label
+if (count_true > count_false) {target_label <- "True"} else {
+  target_label <- "False"}
+
+cat("Spam prediction at KNN K=3 is", target_label)
+```
+
+c\. What target level would a *k*-NN model with *k* = 3 and using Manhattan distance return for the same query?
+
+```{r 6.2.c}
+# Calculate using Manhattan distance 
+manhattan_dist <- function(x, y) sum(abs(x - y))
+distances_m <- sapply(bow_list, function(x) manhattan_dist(x, target_level))
+
+# KNN model with K=3
+nearest_indices_m <- order(distances_m)[1:k]
+nearest_labels_m <- Spam[nearest_indices_m]
+
+# Count occurrences of "True" (spam) and "False" (not spam)
+count_true_m <- sum(nearest_labels_m == "True")
+count_false_m <- sum(nearest_labels_m == "False")
+
+# Determine the majority label
+if (count_true_m > count_false_m) {target_label_m <- "True"} else {
+  target_label_m <- "False"}
+
+cat("Spam prediction at KNN K= 3 using Manhattan distribution is", 
+    target_label_m)
+```
+
+d\. There are a lot of zero entries in the spam bag-of-words dataset. This is indicative of sparse data and is typical for text analytics. Cosine similarity is often a good choice when dealing with sparse non-binary data. What target level would a 3-NN model using cosine similarity return for the query?
+
+```{r 6.2.d}
+# Normalize the list
+bow_list_cos <- lapply(split(as.matrix(Bag_of_words), seq(nrow(Bag_of_words))), 
+                       function(row) row / sqrt(sum(row^2)))
+target_point_cos <- target_level / sqrt(sum(target_level^2))
+
+# Calculate cosine similarity
+cosine_similarity <- function(x, y) sum(x * y)
+similarities <- sapply(bow_list_cos, 
+                       function(x) cosine_similarity(x, target_point_cos))
+
+nearest_indices_cos <- order(similarities, decreasing = TRUE)[1:k]
+nearest_labels_cos <- Spam[nearest_indices_cos]
+
+# Count occurrences of "True" (spam) and "False" (not spam)
+count_true_cos <- sum(nearest_labels_cos == "True")
+count_false_cos <- sum(nearest_labels_cos == "False")
+
+# Determine the majority label
+if (count_true_cos > count_false_cos) {target_label_cos <- "True"} else {
+  target_label_cos <- "False"}
+
+cat("Spam prediction at KNN K= 3 using cosine similarity is", 
+    target_label_cos)
+```
+
+### Question 3
+
+*Predictive data analytics models are often used as tools for process quality control and fault detection. The task in this question is to create a naive Bayes model to monitor a waste water treatment plant.1 The table below lists a dataset containing details of activities at a waste water treatment plant for 14 days. Each day is described in terms of six descriptive features that are generated from different sensors at the plant. SS-IN measures the solids coming into the plant per day; SED-IN measures the sediment coming into the plant per day; COND-IN measures the electrical conductivity of the water coming into the plant.2 The features SS-OUT, SED-OUT, and CONDOUT are the corresponding measurements for the water flowing out of the plant. The target feature, STATUS, reports the current situation at the plant: ok, everything is working correctly; settler, there is a problem with the plant settler equipment; or solids, there is a problem with the amount of solids going through the plant.*
+
+```{r q3}
+waste_water <- tibble::tibble(
+    Ss_In = c(168,156,176,256,230,116,242,242,174,1004,1228,964,2008),
+    Sed_In = c(3,3,3.5,3,5,3,7,4.5,2.5,35,46,17,32),
+    Cond_In = c(1814,1358,2200,2070,1410,1238,1315,1183,1110,1218,1889,2120,1257),
+    Ss_Out = c(15,14,16,27,131,104,104,78,73,81,82.4,20,13),
+    Sed_Out = c(.001,.01,.005,.2,3.5,.06,.01,.02,1.5,1172,1932,1030,1038),
+    Cond_Out = c(1879,1425,2140,2700,1575,1221,1434,1374,1256,33.3,43.1,1966,1289),
+    Status = c("ok", "ok", "ok", "ok", "settler", "settler", "settler", "settler", "settler",
+          "solid", "solid", "solid", "solid"))
+gt(waste_water)
+```
+
+a\. Create a naive Bayes model that uses probability density functions to model the descriptive features in this dataset (assume that all the descriptive features are normally distributed). Show clearly the distribution of each of the predictors conditional on status and the prior probabilities of the status. (15 points)
+
+```{r 6.3.a}
+# Create a naive Bayes model that uses PDF
+waste_water_df <- as.data.frame(waste_water)
+ctrl1 <- trainControl(method = "cv",
+                     number = 5,
+                     summaryFunction = defaultSummary,
+                     classProbs = TRUE,
+                     savePredictions = TRUE)
+nb_model <- train(Status ~ ., 
+                  data = waste_water_df, 
+                  method = "naive_bayes", 
+                  trControl = ctrl1)
+
+# Retrive means and standard deviations by Status 
+round(nb_model$finalModel$table$Ss_In,2)
+round(nb_model$finalModel$table$Sed_In,2)
+round(nb_model$finalModel$table$Cond_In,2)
+round(nb_model$finalModel$table$Ss_Out,2)
+round(nb_model$finalModel$table$Sed_Out,2)
+round(nb_model$finalModel$table$Cond_Out,2)
+
+# Calculate prior probabilities
+prior_prob <- waste_water |>
+  count(Status) |>
+  mutate(prior_probability = n / sum(n)) |>
+  select(Status, prior_probability)
+
+prior_prob <- as.data.frame(t(prior_prob))
+colnames(prior_prob) <- prior_prob[1, ]
+prior_prob <- prior_prob[-1,]
+prior_prob
+```
+
+b\. What prediction will the naive Bayes model return for the following query? SS-IN = 222, SED-IN = 4.5, COND-IN = 1518, SS-OUT = 74, SED-OUT = 0.25, COND-OUT = 1642.
+
+```{r 6.3.b}
+# Naive Bayes model prediction for the query below
+new_data <- data.frame(Ss_In = 222, Sed_In = 4.5,
+                       Cond_In = 1518, Ss_Out = 74,
+                       Sed_Out = 0.25, Cond_Out = 1642)
+
+predictions <- predict(nb_model, newdata = new_data)
+cat("Naive Bayes model predition for the query is", predictions, "or settler.")
+```
+
+### Question 4
+
+Imagine that you have been given a dataset of 1,00 documents that have been classified as being about entertainment or education. There are 700 entertainment documents in the dataset and 300 education documents in the dataset. The tables below give the number of documents from each topic that a selection of worlds occurred in.
+
+```{r q4}
+entertainment <- tibble::tibble(fun = 415, is = 695, 
+                                machine = 35, christmas = 0, 
+                                family = 400, learning = 70)
+entertainment |> gt() |> tab_header("Word-document counts for the entertainment dataset")
+education <- tibble::tibble(fun = 200, is = 295, 
+                            machine = 120, christmas = 0, 
+                            family = 10, learning = 105)
+education |> gt() |> tab_header("Word-document counts for the education dataset")
+```
+
+a\. What target level will a Naive Bayes model predict for the following query document: “machine learning is fun”?
+
+b\. What target level will a Naive Bayes model predict for the following query document: “christmas family fun”?
+
+c\. What target level will a Naive Bayes model predict for the following query document: “learning is family fun”?

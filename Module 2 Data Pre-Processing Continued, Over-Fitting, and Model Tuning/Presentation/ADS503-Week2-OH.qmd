@@ -1,0 +1,353 @@
+---
+title: "ADS 503 - Applied Predictive Modeling "
+subtitle: "Summer 2024 - Week 2"
+author: "Dave Hurst"
+format: 
+    revealjs:
+        width: 1280
+        height: 720
+        margin: 0.05
+        incremental: false
+        code-overflow: wrap
+        logo: images/usd-smlogo.jpeg
+        css: styles.css
+        mermaid:
+            theme: "dark"
+execute: 
+    echo: false    
+editor: visual
+---
+
+# 
+
+::: {style="text-align: center;"}
+Start [Recording](https://sandiego.hosted.panopto.com/Panopto/Pages/Sessions/List.aspx#folderID=%22e6d28334-e667-4a4e-8f3d-b16b0040388c%22)! 
+:::
+
+# Agenda
+
+::: incremental
+-   Course Map
+-   RStudio and R Session data
+-   Final Project
+-   Assignment 1 Review
+-   QA
+    -   Binning
+:::
+
+# Course Map
+
+```{mermaid}
+graph TD
+    subgraph Data Prep 
+        direction TB
+        M1[Week 1 \n Transformation ]
+        M2[Week 2 \n Partition ]
+    end
+
+    subgraph Models
+        direction LR
+        subgraph Linear
+            direction TB
+            M3[Week 3 \nRegression]
+            M5[Week 5 \nRegression]
+        end
+        subgraph Non-Linear
+            direction TB
+            M4[Week 4\nClassification]
+            M6[Week 6\nClassification]
+        end
+    end
+
+    M7[Week 7\nFinal Project_]
+
+    
+    M2 --> M3
+    M3 --> M4
+    M6 --> M7
+```
+
+# RStudio and R Session Data
+
+::: columns
+::: {.column width="75%"}
+![](images/RData%20Environments.png)
+:::
+
+::: {.column width="25%"}
+::: incremental
+-   Remove all variables (not recommended)
+-   Restart Session
+:::
+:::
+:::
+
+# Final Project
+
+
+- Video Presentation (10-15 min)
+    - Problem statement
+    - Data used
+    - EDA
+    - Data preprocessing and splitting\
+    - Modeling techniques and performance\
+    - Hyperparameter tuning\
+    - Final model selection\
+- Technical Report (10-12 pages, APA 7)
+
+
+# Final Project (Con't)
+
+- Executive Summary (5 slides/pages)
+    - Slides or PDF
+    - Non-technical audience focus
+    - No presentation required 
+- Recommendations:
+    - GitHub for version control
+    - Explore novel datasets
+    - Identify areas for improvement
+    - Tables / Visualizations are key
+
+
+
+# Assignment 1 Review {.incremental}
+
+::: columns
+::: {.column width="30%"}
+::: incremental
+-   Warnings <br><br>
+
+-   Plots <br><br>
+
+-   Tables <br><br>
+
+-   Iteration
+:::
+:::
+
+::: {.column width="70%"}
+::: fragment
+-   `suppressPackageStartupMessages()` or;<br> `#| warnings: false`
+-   `par(mfrow = c(m,n)` or facet_wrap()\` <br><br>
+-   `knitr::kable()` or library(gt)\` <br><br>
+-   X`apply` or `purrr::map_...`
+:::
+:::
+:::
+
+# Assignment 1 - Suppressing Warnings
+
+```{r}
+#| echo: true
+suppressPackageStartupMessages(library(tidyverse))
+```
+
+... later in notebook ...
+
+```{r}
+#| echo: true
+library(tidyverse)
+```
+
+... also handy in targeted chunks ...
+
+```         
+#| warning: false
+#| message: false
+```
+
+# Assignment 1 - Compact Plotting (using `Hmisc()`) {.smaller}
+
+```{r echo=TRUE}
+library(mlbench)
+data("Glass")
+library(Hmisc)
+hist.data.frame(Glass)
+```
+
+# Assignment 1 - Compact Plotting (using `par(mfrow=...)`) {.smaller}
+
+```{r echo=TRUE}
+par(mfrow = c(3,3))
+for (i in 1:9) {hist(Glass[ ,i], main = names(Glass)[i], xlab = NULL)}
+par(mfrow = c(1,1))
+```
+
+# Assignment 1 - Compact Plotting (using `facet_wrap...)`) {.smaller}
+
+```{r echo=TRUE}
+Glass |> 
+    pivot_longer(-Type, names_to = 'Element', values_to = 'value') |> 
+    ggplot(aes(x=value)) + 
+    facet_wrap(~Element, scales = "free", ncol = 5) + 
+    geom_histogram(bins = 20) +
+    theme_bw() +
+    labs(title = "Distributions of Predictor Variables", x = NULL, y = "Count") + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+# Assignment 1 - Iteration using `purrr::map_...)`) {.smaller}
+
+**3.1.c (10 points)**
+
+Are there any relevant transformations of one or more predictors that might improve the classification model? Assume the model requires the predictors to have approximately symmetric distribution. Apply relevant transformations to the predictors and observe the changes to the distributions of predictors.
+
+```{r echo=TRUE}
+suppressPackageStartupMessages(library(e1071))
+skew_glass <- Glass |> 
+    select(-Type) |> 
+    map_dbl(skewness) 
+skew_glass |> round(3)
+```
+
+# Deep dive : `purrr::map()` {.smaller}
+
+```{r echo=TRUE}
+skewness(Glass[ ,1])
+skewness(Glass[ ,2])
+```
+
+::: columns
+::: column
+```{r echo=TRUE}
+skews <- purrr::map(Glass[ ,1:9], skewness)
+class(skews)
+skews[1:5]
+```
+:::
+
+::: column
+```{r echo=TRUE}
+skews <- purrr::map_dbl(Glass[ ,1:9], skewness)
+class(skews)
+skews[1:5]
+```
+:::
+:::
+
+# Deep dive : `purrr::map()` with custom functions {.smaller}
+
+```{r echo=TRUE}
+report_skew <- function(x) {
+    skewness(x) |> round(3)
+}
+purrr::map_dbl(Glass[ ,1:9], report_skew)
+```
+
+... as a formula
+
+```{r echo=TRUE}
+purrr::map_dbl(Glass[ ,1:9], ~report_skew(.x))
+```
+
+# Deep dive : `purrr::map()` with custom functions {.smaller}
+
+```{r echo=TRUE}
+report_skew <- function(x, xname) {
+    tibble(
+        predictor = xname,
+        skew = skewness(x, na.rm = TRUE),
+        min = min(x, na.rm = TRUE)
+    )
+}
+predictors <- Glass[ ,1:9]
+purrr::map2_dfr(predictors, names(predictors), ~report_skew(.x, .y))
+```
+
+# Assignment 1 - Apply `BoxCoxTrans()` {.smaller}
+
+... Apply relevant transformations to the predictors and observe the changes to the distributions of predictors.
+
+```{r echo=TRUE}
+suppressPackageStartupMessages(library(caret))
+report_bct_skew <- function(x, xname) {
+    if(any(x == 0)) x = x + 0.0001
+    bct <- BoxCoxTrans(x)
+    trans <- predict(bct, x)
+    tibble(
+        Predictor = xname,
+        `Original Skew` = skewness(x, na.rm = TRUE),
+        `Transformed Skew` = skewness(trans, na.rm = TRUE),
+        Lambda = bct$lambda
+    )
+}
+predictors <- Glass[ ,1:9]
+map2_dfr(predictors, names(predictors), ~report_bct_skew(.x, .y))
+```
+
+# Assignment 1 - Table output example {.smaller}
+
+... which predictors would be candidates for a BoxCox transformation?
+
+```{r echo=TRUE}
+bct_keep <- map2_dfr(predictors, names(predictors), ~report_bct_skew(.x, .y)) |> 
+        filter(abs(`Original Skew`) > 0.5,
+           abs(`Transformed Skew`) < 0.5) 
+```
+
+::: columns
+::: column
+::: fragment
+```{r echo=TRUE}
+bct_keep
+```
+:::
+:::
+
+::: column
+::: fragment
+```{r echo=TRUE}
+bct_keep |> knitr::kable()
+```
+:::
+:::
+:::
+
+# Assignment 1 - Table output example w/ `gt::gt()` {.smaller}
+
+::: columns
+::: column
+```{r echo=TRUE}
+suppressPackageStartupMessages(library(gt))
+bct_keep |> gt()
+```
+:::
+
+::: column
+```{r echo=TRUE}
+bct_keep |> gt() |> 
+    fmt_number(decimals = 3) |> 
+    fmt_number(columns = 'Lambda', decimals = 1)
+```
+:::
+:::
+
+# Q&A - Binning {.smaller}
+
+"...could you share some examples of binning numeric predictors and why it should be avoided?"
+
+**There are many issues with the manual binning of continuous data.** (Kuhn and Johnson, 2013)
+
+-   Manual vs Automated
+-   Econometrics vs Predictive Modeling
+-   Colinearities
+
+**Example**
+
+::: columns
+::: column
+```{r echo=TRUE}
+Glass |> ggplot(aes(Type, Ba)) + geom_boxplot()
+```
+:::
+
+::: column
+```{r echo=TRUE}
+glass_aug <- Glass |> 
+    mutate(Ba_hi = Ba > 0.05)
+glass_aug |> head() |> gt()
+```
+:::
+:::
+
+# Q&A

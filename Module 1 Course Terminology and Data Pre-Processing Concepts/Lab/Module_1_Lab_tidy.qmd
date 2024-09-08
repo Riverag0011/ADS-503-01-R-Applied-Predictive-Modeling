@@ -1,0 +1,359 @@
+---
+title: "ADS503 - Module 1 Lab - updated 2024"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, include = TRUE)
+```
+
+## R Data Types
+
+We will review vectors, matrices, data frames and list data types, these are the most commonly used data types in R. For more details see [A field guide to base R - R for Data Science (2e)](https://r4ds.hadley.nz/base-r "A field guide to base R - R for Data Science (2e)")
+
+```{r datatypes}
+
+xn <- c(1, 2, 3) # numeric vector
+yn = c(1, 2, 3)
+
+str(xn) # structure of the R object
+class(xn) # class of the object
+
+xc <- c('a', 'b', 'c') # character vector
+
+str(xc)
+class(xc)
+
+xm <- matrix(1:20, nrow = 5, ncol = 4) # matrix
+xm
+?matrix
+
+xm1 <- matrix(1:20, nrow = 5, ncol = 4, byrow = TRUE) # matrix
+xm1
+
+str(xm1)
+class(xm1)
+
+xl <- list(a = 1:10, beta = exp(-3:3), logic = c(TRUE, FALSE, FALSE, TRUE)) # list
+xl$a
+xl[[2]]
+
+str(xl)
+class(xl)
+
+```
+
+### Tibbles - `tidyverse` dataframes
+
+The `tidyverse` is an opinionated set of packages that assumes common interfaces and a "tidy" data philosophy that centers around a modified `dataframe` called a `tibble`. For more details, see [tidyverse.org](tidyverse.org).
+
+```{r tibbles}
+library(tidyverse)
+
+xd1 <- tibble(
+    x = 1:1000, 
+    y = letters[1:1000], 
+    z = rep(c(TRUE, FALSE), 500))
+xd1 
+class(xd1)
+```
+
+### dplyr packages - select, filter
+
+`dplyr` is a `tidyverse` package for working with dataframes.
+
+```{r}
+#xd1[, c("y", "z")] # data frame columns y and z
+xd1 |> select(y, z)
+
+#xd1[xd1$x > 5, ] # subset data frame
+xd1 |> filter(x > 5)
+
+#subset(xd1, x > 5 & z == TRUE) # subset data frame
+xd1 |> filter(
+    x > 5,
+    z == TRUE
+)
+
+#xds1 <- subset(xd1, x > 5, select = c(x, y)) # subset and select data frame
+xd1 |> 
+    filter(x > 5) |> 
+    select(x, y)
+
+#xds2 <- subset(xd1, x > 5, select = -z) # subset and select data frame
+xds2 <- xd1 |> 
+    filter(x > 5) |> 
+    select(-z)
+xds2
+```
+
+## Reading and writing files in R
+
+```{r readwrite}
+csv_file <- list.files(pattern = 'hcvdat0.csv', recursive = TRUE)
+read_df1 <- read_csv(csv_file)
+spec(read_df1)
+
+write_csv(xds2, file = 'xds2.csv')
+```
+
+## Iteration and Transformation in R (purrr and more dplyr functions)
+
+We will replace the Base R `apply...` functions with `dplyr::mutate` ,`dplyr::summarise` , and `purrr::map...` functions. For more details see [R for Data Science (2e) Data transformation](https://r4ds.hadley.nz/data-transform) and [Iteration](https://r4ds.hadley.nz/iteration)
+
+```{r applyfunctions}
+
+data(cars)
+head(cars)
+dim(cars)
+
+#common applications to columns
+cars |> 
+    as_tibble() |>  ## not required, but makes our output nicer
+    mutate(travel_time = dist / speed)
+
+#summarizing
+cars |> 
+    summarise(
+        avg_speed = mean(speed),
+        max_speed = max(speed),
+        dist_range = range(dist) |> paste(collapse = ' - ')
+    )
+
+
+#apply(cars, 1, mean) # row mean
+cars |> 
+    rowwise() |> 
+    mutate(mean = mean(c_across(everything()))) #summarize for just the mean
+
+#apply(cars, 2, mean) # column mean
+cars |> 
+    map_dbl(mean)
+
+data(airquality)
+head(airquality)
+
+# aq_class <- lapply(airquality, class) # get class of each column in the data frame
+aq_class <- map(airquality, class)  #purrr::map()
+aq_class
+
+#aq_mean <- lapply(airquality, mean) # get mean of each column in the data frame
+aq_mean <- airquality |> 
+    map_dbl(mean)
+aq_mean
+
+aq_mean_cleaned <- airquality |> 
+    map_dbl(mean, na.rm = TRUE)
+aq_mean_cleaned
+
+#airquality_s <- airquality[, lapply(airquality, class) == 'integer'] # subset
+airquality_s <- airquality |> 
+    select(where(is.integer))
+
+# data frame using lapply function
+
+#sapply(airquality, function(x) sum(is.na(x))) # using sapply to find NA's
+airquality |> map_int(~ sum(is.na(.x)))
+
+# aq_mean_cleaned_vector <- sapply(airquality, mean, na.rm = TRUE)
+# aq_mean_cleaned_vector
+# names(aq_mean_cleaned_vector)
+aq_mean_cleaned
+names(aq_mean_cleaned)
+```
+
+## Some useful functions in R for module 1
+
+pairs, cor, boxplot and skewness
+
+```{r usefulfunctions}
+library(GGally)
+library(corrr)
+
+data(iris)
+str(iris)
+
+ggpairs(iris) # pairwise scatter plots
+
+ggpairs(iris, columns = 1:4, ggplot2::aes(colour = Species))
+
+
+
+# correlation between predictors
+iris |>
+  select(-Species) |>
+  correlate() |>
+  fashion()
+
+# some boxplots
+# boxplot(iris)
+
+iris |> 
+  ggplot(aes(x = Species, y = Sepal.Length)) + 
+  geom_boxplot()
+
+iris |> 
+    pivot_longer(-Species, names_to = 'measure', values_to = 'value') |> 
+  ggplot(aes(x = Species, y = value)) + 
+  geom_boxplot() 
+
+iris |> 
+    pivot_longer(-Species, names_to = 'measure', values_to = 'value') |> 
+    ggplot(aes(x = Species, y = value)) + 
+    geom_boxplot() +
+    facet_wrap(~ measure)
+
+# some histograms
+# par(mfrow = c(1,3))
+# hist(iris$Sepal.Length)
+# hist(iris$Sepal.Width)
+# hist(iris$Petal.Length)
+
+iris |> 
+    pivot_longer(-Species, names_to = 'measure', values_to = 'value') |> 
+    ggplot(aes(x = value)) + 
+    geom_histogram() +
+    facet_wrap(~ measure)
+
+# library(Hmisc)
+# hist.data.frame(iris)
+# hist.data.frame(airquality)
+```
+
+## Boxcox Transformations
+
+Boxcox transformations are used to transform a predictor variable with non-normal distribution into predictor with normal distribution.
+
+```{r boxcox}
+
+set.seed(20)
+df <- tibble( gamma = rgamma(1000, 2))
+ggplot(df, aes(gamma)) + 
+    geom_histogram(binwidth = 0.5, fill = 'skyblue', color = 'black') +
+    labs(title = "Gamma Distribution shape = 2") +
+    theme_minimal()
+
+library(e1071)
+skewness(df$gamma)
+
+df$gauss <- rnorm(1000)
+ggplot(df, aes(gauss)) + 
+    geom_histogram(binwidth = 0.5, fill = 'lightgray', color = 'black') +
+    labs(title = "Normal Distribution") +
+    theme_minimal()
+
+library(caret)
+bct <- BoxCoxTrans(df$gamma)
+df$gamma_xtrans = predict(bct, df$gamma)
+df |> ggplot(aes(x = gamma_xtrans)) +
+    geom_histogram(binwidth = 0.5, fill = "blue", color = "black") +
+    geom_histogram(aes(x = gamma), binwidth = 0.5, fill = "skyblue", alpha = 0.5) +
+    labs(title = "Histogram of Box-Cox Transformed gamma")
+    
+skewness(df$gamma_xtrans)
+
+## handling 0 values
+df_0 <- df |> 
+    select(gamma) |> 
+    bind_rows(tibble(gamma = 0))
+
+bct2_fail <- BoxCoxTrans(df_0$gamma)
+
+bct2 <- BoxCoxTrans(df_0$gamma + 0.0001)
+df_0$gamma_xtrans = predict(bct2, df_0$gamma)
+df_0 |> ggplot(aes(x = gamma_xtrans)) +
+    geom_histogram(binwidth = 0.5, fill = "blue", color = "black") +
+    geom_histogram(aes(x = gamma), binwidth = 0.5, fill = "skyblue", alpha = 0.5) +
+    labs(title = "Histogram of Box-Cox Transformed gamma with 0")
+```
+
+## Principal Component Analysis
+
+It is commonly used for dimensionality reduction by projecting each data point onto only the first few principal components to obtain lower-dimensional data while preserving as much of the data's variation as possible.
+
+Principal components are directions that have maximum variance when data is projected onto them and at the same time are uncorrelated with each other.
+
+Principal components are linear combinations of original predictors.
+
+```{r PCA}
+
+# Example 1
+
+set.seed(100)
+x <- rnorm(1000)
+y <- rnorm(1000)
+z <- rnorm(1000)
+
+m <- matrix(data = c(x, y, z), nrow = 1000, ncol = 3)
+
+m_pca <- prcomp(m)
+str(m_pca)
+
+m_pca_var <- m_pca$sdev^2
+m_pca_var * 100/sum(m_pca_var)
+m_pca_var
+m_pca$rotation
+# m_pca$x # Use this to print all rows
+m_pca$x[1:20,] # Use this to print first 20 rows
+
+# Example 2
+
+t <- (x + y + z)/3
+m1 <- matrix(data = c(x, y, z, t), nrow = 1000, ncol = 4)
+
+m1_pca <- prcomp(m1)
+m1_pca_var <- m1_pca$sdev^2
+m1_pca_var * 100/sum(m1_pca_var)
+
+biplot(m1_pca, scale = 0)
+biplot(m1_pca, choices = 2:3, scale = 0)
+
+
+# Example 3
+
+t <- exp(x)* y + z
+m2 <- matrix(data = c(x, y, z, t), nrow = 1000, ncol = 4)
+
+m2_pca <- prcomp(m2, scale. = TRUE)
+m2_pca_var <- m2_pca$sdev^2
+cumsum(m2_pca_var) * 100/sum(m2_pca_var) # top 3 components capture more 90% of variance
+
+biplot(m2_pca, scale = 0)
+biplot(m2_pca, choices = 2:3, scale = 0)
+
+# Example 4
+
+x <- rnorm(1000)
+y <- rnorm(1000)
+z <- rnorm(1000)
+t <- rnorm(1000, mean = 0, sd = 4)
+
+m3 <- matrix(data = c(x, y, z, t), nrow = 1000, ncol = 4)
+
+m3_pca <- prcomp(m3)
+m3_pca_var <- m3_pca$sdev^2
+m3_pca_var * 100/sum(m3_pca_var)
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+### A practical example with `iris`
+
+```{r}
+pca_iris <- prcomp(iris[1:4], scale. = TRUE)
+pca_iris
+pca_iris |> summary()
+```
+
+```{r}
+iris_pca <-
+    iris |> as_tibble() |> 
+    bind_cols(as_tibble(pca_iris$x))
+
+iris_pca |> ggplot(aes(PC1, PC2)) +
+    geom_point(aes(color = Species))
+```

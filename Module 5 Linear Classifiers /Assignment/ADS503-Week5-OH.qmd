@@ -1,0 +1,183 @@
+---
+title: "ADS 503 - Applied Predictive Modeling (M5) "
+subtitle: "Summer 2024 - Week 5"
+author: "Dave Hurst"
+format: 
+    revealjs:
+        width: 1280
+        height: 720
+        margin: 0.05
+        incremental: false
+        code-overflow: wrap
+        logo: images/usd-smlogo.jpeg
+        css: styles.css
+        mermaid:
+            theme: "dark"
+execute: 
+    echo: false
+    cache: true
+editor: visual
+---
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(pls)
+library(elasticnet)
+library(tictoc)
+```
+
+# 
+
+::: {style="text-align: center;"}
+Start [Recording](https://sandiego.hosted.panopto.com/Panopto/Pages/Sessions/List.aspx#folderID=%22e6d28334-e667-4a4e-8f3d-b16b0040388c%22)!
+:::
+
+# Agenda
+
+::: incremental
+-   Posit.Cloud - note: monthly billing cycle rollover
+-   Course Map
+-   Assignment 4 Review
+-   Assignment 5 Tips
+-   QA
+:::
+
+# Course Map {.smaller}
+
+```{mermaid}
+graph TD
+    subgraph Data Prep 
+        direction TB
+        M1[Week 1 \n Transformation ]
+        M2[Week 2 \n Partition ]
+    end
+
+    subgraph Models
+        direction LR
+        subgraph Linear
+            direction TB
+            M3[Week 3 \nRegression]
+            M5[Week 5 \nClassification]
+        end
+        subgraph Non-Linear
+            direction TB
+            M4[Week 4\nRegression]
+            M6[Week 6\nClassification]
+        end
+    end
+
+    M7[Week 7\nFinal Project_]
+
+    
+    M2 --> M3
+    M3 --> M4
+    M6 --> M7
+    
+    style M5 fill:#aaaa22,stroke:#333,stroke-width:4px;
+
+```
+
+# Assignment 4 Review
+
+We are baking here!
+
+![](images/recipes_hex.png)
+
+Ref: [tidymodels.org](tidymodels.org)
+
+# Assignment 5 Tips {.incremental}
+
+-   5.1 ROC scores are low
+-   5.2 Accuracy scores are high
+-   remember the imbalanced class exercise from Assignment 2
+-   plot tuning (where appropriate)
+-   consider confidence intervals when evaluating models
+-   try to shrink CI (how?)
+
+# A5 - Shrinking CI {.smaller}
+
+::: columns
+::: column
+```{r}
+#| echo: true
+#| eval: false
+ctrl <- trainControl(method = "repeatedcv", repeats = 1,
+                         summaryFunction = twoClassSummary,
+                         classProbs = TRUE,
+                         savePredictions = TRUE)
+```
+
+![](images/A5-1-CI_repeats1.png){width="536" height="300"}
+
+-   Total Notebook runtime \~ 3 mins on posit.cloud
+-   equivalent to `method = "cv"`
+:::
+
+::: column
+```{r}
+#| echo: true
+#| eval: false
+ctrl <- trainControl(method = "repeatedcv", repeats = 5, #default repeats
+                         summaryFunction = twoClassSummary,
+                         classProbs = TRUE,
+                         savePredictions = TRUE)
+```
+
+![](images/A5-1-CI_repeats5.png){width="577" height="300"}
+
+::: fragment
+-   (model names and time intentionally omitted)
+:::
+:::
+:::
+
+::: fragment
+Note: `summaryFunction = [twoClassSummary | multiClassSummary]`
+:::
+
+# A5 - Useful Code Patterns {.smaller}
+
+**Importance Ranking**
+
+```{r}
+#| echo: true
+#| eval: false
+model_imp <- varImp(best_full_model)
+model_top5 <- model_imp$importance |>
+    rownames_to_column(var = 'Predictor') |>
+    arrange(-Overall) |>
+    head(5) |>
+    select(ends_with('Predictor'), Importance = Overall)
+
+```
+
+**Accuracy Summary Tables**
+
+```{r}
+#| echo: true
+#| eval: false
+extract_accuracy <- function(model = "model", cm) {
+    #cm from confustionMatrix(pred, reference = truth)
+    tibble(
+        model = model,
+        Accuracy = cm$overall['Accuracy'],
+        `CI Lower` = cm$overall['AccuracyLower'],
+        `CI Upper` = cm$overall['AccuracyUpper']
+    )
+}
+
+accuracies <- bind_rows(
+    extract_accuracy('LDA', oil_lda_cm),
+    extract_accuracy('PLR', oil_plr_cm),
+    extract_accuracy('NSC', oil_nsc_cm)
+    
+)
+accuracies |> 
+    arrange(-Accuracy) |> 
+    gt() |> 
+    fmt_number(decimals = 3)
+```
+
+# Q&A {.smaller}

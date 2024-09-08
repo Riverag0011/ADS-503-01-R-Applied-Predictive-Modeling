@@ -1,0 +1,213 @@
+---
+title: "ADS 503 - Applied Predictive Modeling (M6) "
+subtitle: "Summer 2024 - Week 6"
+author: "Dave Hurst"
+format: 
+    revealjs:
+        width: 1280
+        height: 720
+        margin: 0.05
+        incremental: false
+        code-overflow: wrap
+        logo: images/usd-smlogo.jpeg
+        css: styles.css
+        mermaid:
+            theme: "dark"
+execute: 
+    echo: false
+    cache: true
+editor: visual
+---
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(gt)
+library(caret)
+library(shiny)
+library(e1071)
+```
+
+# Assignment 5 Review {.incremental}
+
+**5.1.a Given the size of the dataset and the injury status distribution, describe if you would create a separate training and testing data set**
+
+*281 observations ; 184/192 biological/chemical predictors.*
+
+A: Probably not
+
+::: fragment
+**5.2.a Like the hepatic injury data, these data suffer from imbalance. Given this imbalance, should the data be split into training and test sets?**
+
+*With only 96 observations it does not make practical sense to split the data into training and testing sets. It is more practical to use resampling methods to build and estimate the model performance.*
+
+B: Definitely not
+:::
+
+# Assignment 6 Tips {.incremental}
+
+-   Base R (optional `tidyverse`) code necessary for
+    -   Problem 1
+    -   Problem 2
+    -   Problem 3.b
+-   Show calculations when/if code is not used
+
+#  {.smaller}
+
+```{r}
+#| echo: true
+data61a <- tibble::tibble(
+    X1 = 1:6,
+    X2 = 2:7,
+    X3 = seq(30, 80, by = 10),
+) 
+class61a <- c("A", "B", "A", "B", "B", "A")
+```
+
+```{r}
+data61a <- cbind(data61a, class = class61a)
+
+ctrl <- trainControl(method = "cv",
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE,
+                     savePredictions = TRUE)
+
+set.seed(476)
+knnFit <- train(class ~.,
+                data = data61a,
+                method = "knn",
+                tuneLength = 20,
+                metric = "ROC",
+                trControl = ctrl)
+knnFit
+```
+
+```{r}
+data61b <- tibble::tribble(
+    ~X1, ~X2, ~X3,
+    9, 4, 15,
+    7, 8, 45,
+    8, 7, 75
+)
+```
+
+::: columns
+::: column
+Given these observations:
+
+```{r}
+
+gt(data61a)
+```
+:::
+
+::: column
+Predict `Class` for these:
+
+```{r}
+gt(data61b)
+```
+:::
+:::
+
+#  {.smaller}
+
+Using only Base R and tidyverse:
+
+```{r echo=TRUE, eval=FALSE}
+euclid_dist <- function(p1, p2) { 
+    # ... code
+}
+```
+
+```{r echo=FALSE}
+euclid_dist <- function(p1, p2) { 
+    sqrt(sum((p1-p2)^2))
+}
+```
+
+```{r echo=TRUE}
+#recast data as a list of vectors (rows)
+data61b_list <- data61b |> 
+    split(seq(nrow(data61b))) |> 
+    map(\(row) as.numeric(unlist(row)))
+
+target_point <- c(9, 14, 15)
+
+# Calculate the Euclidean distances using purrr::map
+distances <- map_dbl(data61b_list, ~ euclid_dist(.x, target_point))
+min_index <- which.min(distances)
+closest_class <- class61a[min_index]
+closest_class
+```
+
+# Shiny Example
+
+```{r echo=TRUE}
+data(mtcars)
+mtcars |> 
+    ggplot(aes(disp, mpg)) + 
+    geom_point() + 
+    geom_smooth(method = "lm")
+```
+
+#  {.smaller}
+
+```{r echo=TRUE}
+library(caret)
+lm_disp <- train( mpg ~ disp, data = mtcars,
+                  trControl = trainControl(method = "cv"),
+                  method = "lm")
+ex1 <- tibble(disp = 200)
+yhat1 <- predict(lm_disp, newdata = ex1)
+ex1$mpg <- yhat1
+
+mtcars |>
+    ggplot(aes(disp, mpg)) +
+    geom_point() +
+    geom_smooth(method = "lm") +
+    geom_point(data = ex1, color = "blue", size = 4)
+```
+
+#  {.smaller}
+
+```{r echo=TRUE}
+lm_disp_wt <- train( mpg ~ disp + wt, data = mtcars,
+                  trControl = trainControl(method = "cv"),
+                  method = "lm")
+ex2 <- tibble(disp = 200, wt = 4.0) 
+yhat2 <- predict(lm_disp_wt, newdata = ex2 )
+ex2$mpg <- yhat2
+
+mtcars |> 
+    ggplot(aes(disp, mpg)) + 
+    geom_point() + 
+    geom_smooth(method = "lm") +
+    geom_point(data = ex2, color = "skyblue", size = 4)
+
+```
+
+# 
+
+![](images/ChatGPT%20Shiny%20mtcars%20prompt.png)
+
+# 
+
+[![](images/Shiny%20mtcars%20example.png)](https://dsdaveh.shinyapps.io/mtcars/)
+
+<https://dsdaveh.shinyapps.io/mtcars/>
+
+# Final Project {.smaller .incremental}
+
+(see Canvas for full requirements)
+
+-   Video Presentation - 10-15 Mins
+    -   Model performance and hyperparameter tuning
+    -   Results and final model selection. *Use summary tables.*
+    -   AUDIENCE: your data science peers/technical audience
+-   Technical Report
+    -   Include a clearly defined problem statement.
+    -   You can include graphs and output tables only if you use them in your discussion. *This restriction includes code output.*
+-   Executive summary PowerPoint:
+    -   *should make us want to read your paper!*
+
+# Q&A {.smaller}

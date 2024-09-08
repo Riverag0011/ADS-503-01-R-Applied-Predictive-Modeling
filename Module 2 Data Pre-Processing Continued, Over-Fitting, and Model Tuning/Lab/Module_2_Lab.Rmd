@@ -1,0 +1,215 @@
+---
+title: "Module 2 Lab"
+author: "Satya Allumallu"
+date: "2/5/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Data Preprocessing Methods
+
+In this session we will learn more about preprocessing methods that will come in handy when you start building
+predictive models.
+For more details about preprocessing of predictors see <http://topepo.github.io/caret/pre-processing.html>.
+
+
+```{r preprocess}
+library(AppliedPredictiveModeling)
+data(segmentationOriginal)
+
+# create data set for analysis
+segData <- subset(segmentationOriginal, Case == "Train")
+cellID <- segData$Cell
+class <- segData$Class
+case <- segData$Case
+# Now remove the columns
+segData <- segData[, -(1:3)]
+statusColNum <- grep("Status", names(segData))
+segData <- segData[, -statusColNum]
+
+library(caret)
+trans <- preProcess(segData,
+                    method = c("BoxCox", "center", "scale", "pca"))
+
+trans
+
+# Apply the transformations to the original data:
+transformed <- predict(trans, segData)
+head(transformed[, 1:5])
+
+# Check for zero variance predictors or degenerate predictors
+degeneratecols <- nearZeroVar(segData)
+# When predictors should be removed, a vector of integers is returned that 
+# indicates which columns should be removed.
+
+correlations <- cor(segData)
+dim(correlations)
+correlations[1:4, 1:4]
+
+library(corrplot)
+corrplot(correlations, order = "hclust")
+
+highCorr <- findCorrelation(correlations, cutoff = .75) # find highly correlated predictors
+length(highCorr)
+head(highCorr)
+filteredSegData <- segData[, -highCorr] # remove highly correlated predictors
+
+# look at the correlation structure after removing highly correlated predictors
+correlationsFiltered <- cor(filteredSegData)
+corrplot(correlationsFiltered, order = "hclust")
+
+# creating dummy variables
+data(warpbreaks)
+head(warpbreaks)
+
+levels(warpbreaks$wool)
+levels(warpbreaks$tension)
+
+simpleMod <- dummyVars(~ wool + tension, data = warpbreaks)
+predict(simpleMod, head(warpbreaks))
+
+withInteraction <- dummyVars(~ wool + tension + wool:tension, data = warpbreaks)
+predict(withInteraction, head(warpbreaks))
+
+```
+
+### Resampling Techniques
+
+
+```{r datasplitting}
+
+library(caret)
+data(iris)
+head(iris)
+table(iris$Species)
+
+# The base R function sample can create simple random splits of the data. To create stratified random splits of the data (based on the classes), the createDataPartition function in the caret package can be used. The percent of data that will be allocated to the training set should be specified.
+
+# Set the random number seed so we can reproduce the results 
+set.seed(1)
+# By default, the numbers are returned as a list. Using list = FALSE, a matrix of row numbers is generated.
+# These samples are allocated to the training set. 
+trainingRows <- createDataPartition(iris$Species, p = .80, list = FALSE) 
+head(trainingRows)
+table(iris$Species[trainingRows])
+
+# Subset the data into training and testing.
+train <- iris[trainingRows, ]
+test <- iris[-trainingRows, ]
+
+# The caret package has various functions for data splitting. For example, to use repeated training/test splits, the function createDataPartition could be used again with an additional argument named times to generate multiple splits.
+set.seed(1)
+repeatedSplits <- createDataPartition(iris$Species, p = .80, times = 3)
+str(repeatedSplits)
+
+# Similarly, the caret package has functions createResamples (for bootstrapping), createFolds (for k-fold cross-validation) and createMultiFolds (for repeated cross-validation). To create indicators for 10-fold cross-validation,
+set.seed(1)
+cvSplits <- createFolds(iris$Species, k = 10, returnTrain = TRUE)
+str(cvSplits)
+```
+
+### Model building
+
+Let's build and evaluate the performance of a simple k-nearest neighbors model 
+using iris data set we created above.
+
+```{r modeling}
+
+# train model
+trainP <- as.matrix(train[,1:4])
+trainClasses <- train$Species
+knnFit <- knn3(x = trainP, y = trainClasses, k = 5)
+knnFit
+
+# test model
+testP <- as.matrix(test[, 1:4])
+testClasses <- test$Species
+testPredictions <- predict(knnFit, newdata = testP, type = "class")
+head(testPredictions)
+head(testClasses)
+sum(testClasses == testPredictions) # number of accurate predictions
+sum(testClasses == testPredictions)/length(testClasses) # accuracy
+```
+### Hyper Parameter Tuning
+
+Let's learn how to perform hyper parameter tuning using functions from caret
+package using German credit data set. We will also see how compare different
+models using functions from caret package.
+
+```{r modeltuning}
+
+library(caret)
+data(GermanCredit)
+
+## First, remove near-zero variance predictors then get rid of a few predictors 
+## that duplicate values. For example, there are two possible values for the 
+## housing variable: "Rent", "Own" and "ForFree". So that we don't have linear
+## dependencies, we get rid of one of the levels (e.g. "ForFree")
+
+GermanCredit <- GermanCredit[, -nearZeroVar(GermanCredit)]
+GermanCredit$CheckingAccountStatus.lt.0 <- NULL
+GermanCredit$SavingsAccountBonds.lt.100 <- NULL
+GermanCredit$EmploymentDuration.lt.1 <- NULL
+GermanCredit$EmploymentDuration.Unemployed <- NULL
+GermanCredit$Personal.Male.Married.Widowed <- NULL
+GermanCredit$Property.Unknown <- NULL
+GermanCredit$Housing.ForFree <- NULL
+
+## Split the data into training (80%) and test sets (20%)
+set.seed(100)
+inTrain <- createDataPartition(GermanCredit$Class, p = .8, list = FALSE)
+GermanCreditTrain <- GermanCredit[ inTrain, ]
+GermanCreditTest  <- GermanCredit[-inTrain, ]
+
+# Lets build a svm model
+set.seed(1056)
+svmFit <- train(Class ~ ., data = GermanCreditTrain, method = "svmRadial", 
+                preProc = c("center", "scale"), tuneLength = 10,
+                trControl = trainControl(method = "repeatedcv", repeats = 5,
+                                         classProbs = TRUE))
+svmFit
+
+svmgrid <- data.frame(sigma = 0.01478465, C = 2^seq(-7,1))
+set.seed(1056)
+svmFit1 <- train(Class ~ ., data = GermanCreditTrain, method = "svmRadial", 
+                preProc = c("center", "scale"), tuneGrid = svmgrid,
+                trControl = trainControl(method = "repeatedcv", repeats = 5,
+                                         classProbs = TRUE))
+svmFit1
+
+# A line plot of the average performance
+plot(svmFit, scales = list(x = list(log = 2)))
+
+predictedClasses <- predict(svmFit, GermanCreditTest)
+sum(predictedClasses == GermanCreditTest$Class)/length(predictedClasses) # accuracy
+
+# Use the "type" option to get class probabilities
+predictedProbs <- predict(svmFit, newdata = GermanCreditTest, type = "prob")
+head(predictedProbs)
+
+# Let's build a logistic regression model on the same data set
+set.seed(1056)
+logisticReg <- train(Class ~ ., data = GermanCreditTrain, method = "glm",
+                     trControl = trainControl(method = "repeatedcv", repeats = 5))
+
+logisticReg
+
+# To compare these two models based on their cross-validation statistics, the resamples function 
+# can be used with models that share a common set of resampled data sets. Since the random number 
+# seed was initialized prior to running the SVM and logistic models, paired accuracy measurements 
+# exist for each data set. First, we create a resamples object from the models:
+resamp <- resamples(list(SVM = svmFit, Logistic = logisticReg))
+summary(resamp)
+
+# The resamples class has several methods for visualizing the paired values 
+# (see ?xyplot.resamples for a list of plot types). To assess possible differences 
+# between the models, the diff method is used:
+modelDifferences <- diff(resamp)
+summary(modelDifferences)
+
+xyplot(resamp, models = c("SVM", "Logistic"), metric = "Accuracy")
+
+```
